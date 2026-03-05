@@ -9,7 +9,7 @@ from io import StringIO
 from streamlit_autorefresh import st_autorefresh
 
 # ===============================
-# LOGIN (ANTES DO DASH) — MESMO DESIGN
+# LOGIN (ANTES DO DASH) — SOMENTE OS CAMPOS (SEM TÍTULO)
 # ===============================
 APP_USER = "operacao"
 APP_PASS = "100316"
@@ -21,62 +21,50 @@ def ensure_login() -> bool:
     if st.session_state.logged_in:
         return True
 
-    st.set_page_config(page_title="Acesso ao Painel", page_icon="🔒", layout="wide")
+    st.set_page_config(page_title="Acesso", page_icon="🔒", layout="wide")
 
-    st.markdown(
-        """
-        <style>
-          .stApp { background: #F3F4F6; }
-          .block-container { padding-top: 24px; }
-          .login-wrap{
-              max-width: 980px;
-              margin: 6vh auto 0 auto;
-              padding: 0 18px;
-              font-family: Inter, system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-          }
-          .login-title{
-              display:flex; align-items:center; gap:10px;
-              font-size: 28px; font-weight: 800; color:#0B1F3B;
-              margin-bottom: 6px;
-          }
-          .login-sub{ color:#6B7280; margin: 0 0 18px 0; }
-          .login-card{
-              background:#ffffff;
-              border-radius:18px;
-              border: 1px solid rgba(11,31,59,0.08);
-              box-shadow: 0 12px 28px rgba(16,42,82,0.08);
-              padding: 18px;
-          }
-          .login-btn button{
-              background:#000000 !important;
-              color:#ffffff !important;
-              border: 0 !important;
-              width: 100% !important;
-              padding: 14px 14px !important;
-              border-radius: 14px !important;
-              font-weight: 800 !important;
-          }
-          .login-input label { font-weight:700 !important; color:#0B1F3B !important; }
-          .stTextInput > div > div,
-          .stPasswordInput > div > div{
-              background: #EEF2F7 !important;
-              border-radius: 12px !important;
-              border: 1px solid rgba(11,31,59,0.10) !important;
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <style>
+        .stApp { background:#F3F4F6; }
+        .block-container { padding-top: 18px; }
 
-    st.markdown(
-        """
-        <div class="login-wrap">
-          <div class="login-title">🔒 Acesso ao Painel</div>
-          <p class="login-sub">Digite usuário e senha</p>
-          <div class="login-card">
-        """,
-        unsafe_allow_html=True,
-    )
+        .login-wrap{
+            max-width: 980px;
+            margin: 8vh auto;
+            padding: 0 18px;
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+        }
+
+        .login-card{
+            background:#ffffff;
+            border-radius:18px;
+            border:1px solid rgba(11,31,59,0.08);
+            box-shadow:0 12px 28px rgba(16,42,82,0.08);
+            padding: 26px;
+        }
+
+        .login-btn button{
+            background:#000000 !important;
+            color:#ffffff !important;
+            border:0 !important;
+            width:100% !important;
+            padding:14px 14px !important;
+            border-radius: 14px !important;
+            font-weight: 800 !important;
+        }
+
+        .login-input label { font-weight:700 !important; color:#0B1F3B !important; }
+
+        .stTextInput > div > div,
+        .stPasswordInput > div > div{
+            background:#EEF2F7 !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(11,31,59,0.10) !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="login-wrap"><div class="login-card">', unsafe_allow_html=True)
 
     usuario = st.text_input("usuario", key="login_user", placeholder="usuario")
     senha = st.text_input("senha", key="login_pass", placeholder="senha", type="password")
@@ -90,8 +78,7 @@ def ensure_login() -> bool:
     if entrar:
         if usuario.strip() == APP_USER and senha.strip() == APP_PASS:
             st.session_state.logged_in = True
-            st.success("Acesso liberado!")
-            time.sleep(0.4)
+            time.sleep(0.2)
             st.rerun()
         else:
             st.error("Usuário ou senha inválidos.")
@@ -104,7 +91,7 @@ if not ensure_login():
     st.stop()
 
 # =========================================
-# DASHBOARD (continua igual)
+# DASHBOARD
 # =========================================
 st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
 st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
