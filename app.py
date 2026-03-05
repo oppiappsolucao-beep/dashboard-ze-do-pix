@@ -122,19 +122,31 @@ def load_data(url: str, bust: bool = False) -> pd.DataFrame:
     return load_data_cached(url)
 
 def normalize_status(s: str) -> str:
-    """Converte textos variados para os 2 status principais do dashboard."""
+    """
+    Converte textos variados da coluna G para categorias:
+    - Em aberto
+    - Vencido
+    - Pago
+    - Outros (mantém como está)
+    """
     if s is None:
         return ""
     t = str(s).strip().lower()
     if t == "" or t == "nan":
         return ""
+
+    # pago / recebido / quitado
+    if any(k in t for k in ["pago", "paga", "recebid", "quitad", "liquidad"]):
+        return "Pago"
+
     # em aberto
-    if "a vencer" in t or "a_vencer" in t or "aberto" in t or "em aberto" in t or "pendente" in t:
+    if any(k in t for k in ["a vencer", "aberto", "em aberto", "pendente"]):
         return "Em aberto"
+
     # vencido
-    if "vencid" in t or "atras" in t:
+    if any(k in t for k in ["vencid", "atras"]):
         return "Vencido"
-    # qualquer outro texto: mantém capitalizado
+
     return str(s).strip()
 
 # =========================================
@@ -206,22 +218,19 @@ else:
 df["mes_ref"] = df["data_dia"].dt.strftime("%m/%Y")
 
 # =========================================
-# STATUS (✅ AGORA VEM DA COLUNA G)
+# STATUS (vem da coluna G, com fallback se vazio)
 # =========================================
 today = pd.to_datetime(date.today())
 
-# Status vindo da planilha (coluna G) — normalizado
 if c_status is not None:
     df["status_planilha"] = df[c_status].apply(normalize_status)
 else:
     df["status_planilha"] = ""
 
-# fallback (se status vazio)
 df["status_calc"] = "Em aberto"
 df.loc[df["data_pagamento"].notna() & (df["data_pagamento"] < today), "status_calc"] = "Vencido"
 df.loc[df["data_pagamento"].isna(), "status_calc"] = "Sem vencimento"
 
-# status final: usa planilha se tiver; senão usa cálculo
 df["status"] = df["status_planilha"]
 df.loc[df["status"].astype(str).str.strip() == "", "status"] = df.loc[df["status"].astype(str).str.strip() == "", "status_calc"]
 
@@ -257,9 +266,12 @@ total_registros = int(len(fdf))
 total_emprestado = float(fdf["valor_emprestado"].sum())
 total_a_receber = float(fdf["valor_a_pagar"].sum())
 lucro_total = float(fdf["lucro"].sum())
-qtd_vencidos = int((fdf["status"] == "Vencido").sum())
+
 qtd_abertos = int((fdf["status"] == "Em aberto").sum())
-ticket_medio = float(fdf["valor_emprestado"].mean()) if len(fdf) else 0.0
+qtd_vencidos = int((fdf["status"] == "Vencido").sum())
+
+# ✅ VALORES PAGOS (soma do valor a pagar onde status == Pago)
+total_pago = float(fdf.loc[fdf["status"] == "Pago", "valor_a_pagar"].sum())
 
 st.markdown(f"<p class='subtle'>Total de registros filtrados: <b>{total_registros}</b></p>", unsafe_allow_html=True)
 
@@ -269,9 +281,9 @@ st.markdown(
       <div class="kpi"><h4>💰 Total emprestado</h4><p class="big">{brl(total_emprestado)}</p><p class="small">soma do valor emprestado</p></div>
       <div class="kpi"><h4>📥 Total a receber</h4><p class="big">{brl(total_a_receber)}</p><p class="small">soma do valor a pagar</p></div>
       <div class="kpi"><h4>📈 Lucro estimado</h4><p class="big">{brl(lucro_total)}</p><p class="small">a pagar − emprestado</p></div>
+      <div class="kpi"><h4>💳 Valores pagos</h4><p class="big">{brl(total_pago)}</p><p class="small">soma (Status = Pago)</p></div>
       <div class="kpi"><h4>⏳ Em aberto</h4><p class="big">{qtd_abertos}</p><p class="small">a vencer / pendente</p></div>
       <div class="kpi"><h4>⚠️ Vencidos</h4><p class="big">{qtd_vencidos}</p><p class="small">vencimento &lt; hoje</p></div>
-      <div class="kpi"><h4>🎯 Ticket médio</h4><p class="big">{brl(ticket_medio)}</p><p class="small">média emprestado</p></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -284,7 +296,6 @@ st.markdown("")
 # =========================================
 g1, g2 = st.columns([1, 1], gap="large")
 
-# ✅ Status por vencimento (VALOR total) — agora usa coluna G (df["status"])
 with g1:
     st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
 
@@ -303,11 +314,9 @@ with g1:
         hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
         customdata=status_value["label"],
     )
-
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Barra horizontal — valor emprestado a cada 7 dias (TOP 12)
 with g2:
     st.markdown("<div class='card'><h3>📊 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
 
@@ -318,7 +327,6 @@ with g2:
     s = tmp["valor_emprestado"].resample("7D").sum()
     by_7d = s.reset_index()
     by_7d.columns = ["inicio_periodo", "total"]
-
     by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"])
     by_7d["periodo_label"] = by_7d["inicio_periodo"].dt.strftime("%d/%m/%Y")
     by_7d["label"] = by_7d["total"].apply(brl)
