@@ -11,8 +11,6 @@ from streamlit_autorefresh import st_autorefresh  # ✅ auto-refresh
 # =========================================
 st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
 
-# 🔄 Atualiza automaticamente a página (em ms)
-# Ajuste aqui: 5_000 = 5s | 10_000 = 10s
 st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
 
 SHEET_ID = "1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg"
@@ -115,7 +113,6 @@ def brl(v: float) -> str:
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
 
-# ✅ cache curtinho para atualizar quase imediato
 @st.cache_data(ttl=5, show_spinner=False)
 def load_data_cached(url: str) -> pd.DataFrame:
     return pd.read_csv(url)
@@ -151,10 +148,7 @@ csv_url = gsheet_csv_url(SHEET_ID, GID)
 try:
     raw = load_data(csv_url, bust=refresh_now).copy()
 except Exception as e:
-    st.error(
-        "Não consegui ler a planilha. Garanta que ela está acessível como 'Qualquer pessoa com o link (Leitor)' "
-        "ou que foi 'Publicada na Web'."
-    )
+    st.error("Não consegui ler a planilha. Garanta que ela está como 'Qualquer pessoa com o link (Leitor)'.")
     st.exception(e)
     st.stop()
 
@@ -258,7 +252,7 @@ st.markdown("")
 # =========================================
 g1, g2 = st.columns([1, 1], gap="large")
 
-# ✅ Status por vencimento (VALOR total)
+# Status por vencimento (VALOR total)
 with g1:
     st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
 
@@ -268,14 +262,10 @@ with g1:
         .reset_index()
         .rename(columns={"valor_a_pagar": "total"})
     )
-
-    # labels BRL (para hover)
     status_value["label"] = status_value["total"].apply(brl)
 
     fig = px.pie(status_value, names="status", values="total", hole=0.6)
     fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, showlegend=True)
-
-    # Mostra valores (sem porcentagem)
     fig.update_traces(
         textinfo="label+value",
         hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
@@ -285,9 +275,9 @@ with g1:
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ “Estatístico” de linha horizontal + valores no ponto (7 em 7 dias)
+# ✅ BARRA HORIZONTAL “estatística” (igual seu exemplo) — valor emprestado a cada 7 dias
 with g2:
-    st.markdown("<div class='card'><h3>📈 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><h3>📊 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
 
     tmp = fdf.dropna(subset=["data_dia"]).copy()
     tmp["data_dia"] = pd.to_datetime(tmp["data_dia"])
@@ -296,28 +286,33 @@ with g2:
     s = tmp["valor_emprestado"].resample("7D").sum()
     by_7d = s.reset_index()
     by_7d.columns = ["inicio_periodo", "total"]
+
     by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"])
+    by_7d["periodo_label"] = by_7d["inicio_periodo"].dt.strftime("%d/%m/%Y")
     by_7d["label"] = by_7d["total"].apply(brl)
 
-    fig2 = px.line(
+    # Top N para não ficar gigante
+    TOP_N = 12
+    by_7d = by_7d.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
+
+    fig2 = px.bar(
         by_7d,
-        x="inicio_periodo",
-        y="total",
-        markers=True,
-        text="label",  # ✅ valor no ponto
-    )
-    fig2.update_traces(
-        textposition="top center",
-        hovertemplate="Período: %{x|%d/%m/%Y}<br>Total emprestado: %{text}<extra></extra>",
+        y="periodo_label",
+        x="total",
+        orientation="h",
+        text="label",
     )
     fig2.update_layout(
         margin=dict(l=10, r=10, t=10, b=10),
         height=360,
-        xaxis_title="",
-        yaxis_title="",
+        xaxis_title="Total (R$)",
+        yaxis_title="Período (início)",
     )
-    fig2.update_xaxes(tickformat="%d/%m/%Y", tickangle=0, showgrid=True)
-    fig2.update_yaxes(showgrid=True)
+    fig2.update_traces(
+        textposition="outside",
+        hovertemplate="Período: %{y}<br>Total emprestado: %{text}<extra></extra>",
+        cliponaxis=False,
+    )
 
     st.plotly_chart(fig2, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -343,7 +338,7 @@ with g3:
     st.plotly_chart(fig3, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ “Estatístico” de linha horizontal + valores no ponto (vencimentos)
+# ✅ BARRA HORIZONTAL “estatística” (igual seu exemplo) — vencimentos
 with g4:
     st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
 
@@ -356,27 +351,30 @@ with g4:
     )
 
     venc["data"] = pd.to_datetime(venc["data"])
+    venc["data_label"] = venc["data"].dt.strftime("%d/%m/%Y")
     venc["label"] = venc["total"].apply(brl)
 
-    fig4 = px.line(
+    TOP_N = 12
+    venc = venc.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
+
+    fig4 = px.bar(
         venc,
-        x="data",
-        y="total",
-        markers=True,
-        text="label",  # ✅ valor no ponto
-    )
-    fig4.update_traces(
-        textposition="top center",
-        hovertemplate="Data: %{x|%d/%m/%Y}<br>Total a pagar: %{text}<extra></extra>",
+        y="data_label",
+        x="total",
+        orientation="h",
+        text="label",
     )
     fig4.update_layout(
         margin=dict(l=10, r=10, t=10, b=10),
         height=360,
-        xaxis_title="",
-        yaxis_title="",
+        xaxis_title="Total a pagar (R$)",
+        yaxis_title="Data",
     )
-    fig4.update_xaxes(tickformat="%d/%m/%Y", tickangle=0, showgrid=True)
-    fig4.update_yaxes(showgrid=True)
+    fig4.update_traces(
+        textposition="outside",
+        hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>",
+        cliponaxis=False,
+    )
 
     st.plotly_chart(fig4, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -397,10 +395,6 @@ view["Status"] = view["status"]
 table_cols = show_cols + ["Lucro (calc)", "Status"]
 view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
 
-st.dataframe(
-    view_sorted[table_cols],
-    use_container_width=True,
-    height=420,
-)
+st.dataframe(view_sorted[table_cols], use_container_width=True, height=420)
 
 st.markdown("</div>", unsafe_allow_html=True)
