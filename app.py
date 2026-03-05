@@ -313,17 +313,23 @@ with g4:
 st.markdown("")
 
 # =========================================
-# TABELA
+# TABELA (CORRIGIDA: sem KeyError)
 # =========================================
 st.markdown("<div class='card'><h3>🧾 Registros</h3>", unsafe_allow_html=True)
 
 show_cols = [c for c in [c_data, c_nome, c_tel, c_ve, c_vp, c_venc] if c in fdf.columns]
+
 view = fdf.copy()
 view["Lucro (calc)"] = view["lucro"]
 view["Status"] = view["status"]
 
+# ✅ CORREÇÃO:
+# Ordena primeiro (com data_dia existente), depois seleciona colunas para exibir.
+table_cols = show_cols + ["Lucro (calc)", "Status"]
+view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
+
 st.dataframe(
-    view[show_cols + ["Lucro (calc)", "Status"]].sort_values(by="data_dia", ascending=False),
+    view_sorted[table_cols],
     use_container_width=True,
     height=420,
 )
