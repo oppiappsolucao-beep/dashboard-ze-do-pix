@@ -10,7 +10,6 @@ from streamlit_autorefresh import st_autorefresh  # ✅ auto-refresh
 # CONFIG
 # =========================================
 st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
-
 st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
 
 SHEET_ID = "1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg"
@@ -122,6 +121,22 @@ def load_data(url: str, bust: bool = False) -> pd.DataFrame:
         url = url + f"&_ts={int(time.time()*1000)}"
     return load_data_cached(url)
 
+def normalize_status(s: str) -> str:
+    """Converte textos variados para os 2 status principais do dashboard."""
+    if s is None:
+        return ""
+    t = str(s).strip().lower()
+    if t == "" or t == "nan":
+        return ""
+    # em aberto
+    if "a vencer" in t or "a_vencer" in t or "aberto" in t or "em aberto" in t or "pendente" in t:
+        return "Em aberto"
+    # vencido
+    if "vencid" in t or "atras" in t:
+        return "Vencido"
+    # qualquer outro texto: mantém capitalizado
+    return str(s).strip()
+
 # =========================================
 # HEADER
 # =========================================
@@ -134,7 +149,6 @@ with l:
         """,
         unsafe_allow_html=True,
     )
-
 with r:
     st.markdown("<div class='btn-navy'>", unsafe_allow_html=True)
     refresh_now = st.button("🔄 Atualizar agora", use_container_width=True)
@@ -158,18 +172,19 @@ def pick(name):
             return c
     return None
 
-c_data = pick("Data do dia")
-c_nome = pick("Emprestado")
-c_ve = pick("Valor emprestado")
-c_vp = pick("Valor a pagar")
-c_venc = pick("Data do pagamento")
-c_tel = pick("Telefone")
-c_luc = pick("Lucro")
+c_data   = pick("Data do dia")
+c_nome   = pick("Emprestado")
+c_ve     = pick("Valor emprestado")
+c_vp     = pick("Valor a pagar")
+c_venc   = pick("Data do pagamento")
+c_tel    = pick("Telefone")
+c_luc    = pick("Lucro")
+c_status = pick("Status")  # ✅ COLUNA G
 
 needed = [c_data, c_nome, c_ve, c_vp, c_venc]
 if any(x is None for x in needed):
     st.error("Títulos de colunas diferentes do esperado. Use exatamente:")
-    st.code("Data do dia | Emprestado | Valor emprestado | Valor a pagar | Data do pagamento | Telefone | Lucro")
+    st.code("Data do dia | Emprestado | Valor emprestado | Valor a pagar | Data do pagamento | Telefone | Status | Lucro")
     st.write("Encontrei:", list(raw.columns))
     st.stop()
 
@@ -180,6 +195,7 @@ df["data_pagamento"] = df[c_venc].apply(parse_date_br)
 df["valor_emprestado"] = df[c_ve].apply(parse_brl_money)
 df["valor_a_pagar"] = df[c_vp].apply(parse_brl_money)
 
+# lucro: usa coluna se existir, senão calcula
 if c_luc is not None:
     df["lucro"] = df[c_luc].apply(parse_brl_money)
     if float(df["lucro"].sum()) == 0.0:
@@ -189,10 +205,25 @@ else:
 
 df["mes_ref"] = df["data_dia"].dt.strftime("%m/%Y")
 
+# =========================================
+# STATUS (✅ AGORA VEM DA COLUNA G)
+# =========================================
 today = pd.to_datetime(date.today())
-df["status"] = "Em aberto"
-df.loc[df["data_pagamento"].notna() & (df["data_pagamento"] < today), "status"] = "Vencido"
-df.loc[df["data_pagamento"].isna(), "status"] = "Sem vencimento"
+
+# Status vindo da planilha (coluna G) — normalizado
+if c_status is not None:
+    df["status_planilha"] = df[c_status].apply(normalize_status)
+else:
+    df["status_planilha"] = ""
+
+# fallback (se status vazio)
+df["status_calc"] = "Em aberto"
+df.loc[df["data_pagamento"].notna() & (df["data_pagamento"] < today), "status_calc"] = "Vencido"
+df.loc[df["data_pagamento"].isna(), "status_calc"] = "Sem vencimento"
+
+# status final: usa planilha se tiver; senão usa cálculo
+df["status"] = df["status_planilha"]
+df.loc[df["status"].astype(str).str.strip() == "", "status"] = df.loc[df["status"].astype(str).str.strip() == "", "status_calc"]
 
 # =========================================
 # FILTROS
@@ -205,7 +236,8 @@ with f1:
     mes_sel = st.selectbox("Mês", options=["Todos"] + meses, index=(len(meses) if meses else 0))
 
 with f2:
-    status_sel = st.selectbox("Status", options=["Todos", "Em aberto", "Vencido", "Sem vencimento"])
+    status_opts = ["Todos"] + sorted(df["status"].dropna().unique().tolist())
+    status_sel = st.selectbox("Status", options=status_opts)
 
 with f3:
     nome_busca = st.text_input("Buscar por nome", placeholder="Ex: Nataly, Irene...")
@@ -252,7 +284,7 @@ st.markdown("")
 # =========================================
 g1, g2 = st.columns([1, 1], gap="large")
 
-# Status por vencimento (VALOR total)
+# ✅ Status por vencimento (VALOR total) — agora usa coluna G (df["status"])
 with g1:
     st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
 
@@ -275,7 +307,7 @@ with g1:
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ BARRA HORIZONTAL “estatística” (igual seu exemplo) — valor emprestado a cada 7 dias
+# Barra horizontal — valor emprestado a cada 7 dias (TOP 12)
 with g2:
     st.markdown("<div class='card'><h3>📊 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
 
@@ -291,34 +323,17 @@ with g2:
     by_7d["periodo_label"] = by_7d["inicio_periodo"].dt.strftime("%d/%m/%Y")
     by_7d["label"] = by_7d["total"].apply(brl)
 
-    # Top N para não ficar gigante
     TOP_N = 12
     by_7d = by_7d.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
 
-    fig2 = px.bar(
-        by_7d,
-        y="periodo_label",
-        x="total",
-        orientation="h",
-        text="label",
-    )
-    fig2.update_layout(
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=360,
-        xaxis_title="Total (R$)",
-        yaxis_title="Período (início)",
-    )
-    fig2.update_traces(
-        textposition="outside",
-        hovertemplate="Período: %{y}<br>Total emprestado: %{text}<extra></extra>",
-        cliponaxis=False,
-    )
+    fig2 = px.bar(by_7d, y="periodo_label", x="total", orientation="h", text="label")
+    fig2.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total (R$)", yaxis_title="Período (início)")
+    fig2.update_traces(textposition="outside", hovertemplate="Período: %{y}<br>Total emprestado: %{text}<extra></extra>", cliponaxis=False)
 
     st.plotly_chart(fig2, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("")
-
 g3, g4 = st.columns([1, 1], gap="large")
 
 with g3:
@@ -338,7 +353,6 @@ with g3:
     st.plotly_chart(fig3, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ BARRA HORIZONTAL “estatística” (igual seu exemplo) — vencimentos
 with g4:
     st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
 
@@ -357,24 +371,9 @@ with g4:
     TOP_N = 12
     venc = venc.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
 
-    fig4 = px.bar(
-        venc,
-        y="data_label",
-        x="total",
-        orientation="h",
-        text="label",
-    )
-    fig4.update_layout(
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=360,
-        xaxis_title="Total a pagar (R$)",
-        yaxis_title="Data",
-    )
-    fig4.update_traces(
-        textposition="outside",
-        hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>",
-        cliponaxis=False,
-    )
+    fig4 = px.bar(venc, y="data_label", x="total", orientation="h", text="label")
+    fig4.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total a pagar (R$)", yaxis_title="Data")
+    fig4.update_traces(textposition="outside", hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>", cliponaxis=False)
 
     st.plotly_chart(fig4, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -386,15 +385,14 @@ st.markdown("")
 # =========================================
 st.markdown("<div class='card'><h3>🧾 Registros</h3>", unsafe_allow_html=True)
 
-show_cols = [c for c in [c_data, c_nome, c_tel, c_ve, c_vp, c_venc] if c in fdf.columns]
+show_cols = [c for c in [c_data, c_nome, c_tel, c_ve, c_vp, c_venc, c_status] if c and c in fdf.columns]
 
 view = fdf.copy()
 view["Lucro (calc)"] = view["lucro"]
-view["Status"] = view["status"]
+view["Status (usado no dash)"] = view["status"]
 
-table_cols = show_cols + ["Lucro (calc)", "Status"]
+table_cols = show_cols + ["Lucro (calc)", "Status (usado no dash)"]
 view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
 
 st.dataframe(view_sorted[table_cols], use_container_width=True, height=420)
-
 st.markdown("</div>", unsafe_allow_html=True)
