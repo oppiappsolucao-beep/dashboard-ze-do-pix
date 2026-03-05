@@ -135,15 +135,10 @@ def normalize_status(s: str) -> str:
     if t == "" or t == "nan":
         return ""
 
-    # pago / recebido / quitado
     if any(k in t for k in ["pago", "paga", "recebid", "quitad", "liquidad"]):
         return "Pago"
-
-    # em aberto
     if any(k in t for k in ["a vencer", "aberto", "em aberto", "pendente"]):
         return "Em aberto"
-
-    # vencido
     if any(k in t for k in ["vencid", "atras"]):
         return "Vencido"
 
@@ -161,6 +156,7 @@ with l:
         """,
         unsafe_allow_html=True,
     )
+
 with r:
     st.markdown("<div class='btn-navy'>", unsafe_allow_html=True)
     refresh_now = st.button("🔄 Atualizar agora", use_container_width=True)
@@ -260,7 +256,7 @@ if nome_busca.strip():
     fdf = fdf[fdf[c_nome].astype(str).str.contains(nome_busca.strip(), case=False, na=False)]
 
 # =========================================
-# KPIs
+# KPIs (✅ trocado: Pagos = QUANTIDADE)
 # =========================================
 total_registros = int(len(fdf))
 total_emprestado = float(fdf["valor_emprestado"].sum())
@@ -269,9 +265,7 @@ lucro_total = float(fdf["lucro"].sum())
 
 qtd_abertos = int((fdf["status"] == "Em aberto").sum())
 qtd_vencidos = int((fdf["status"] == "Vencido").sum())
-
-# ✅ VALORES PAGOS (soma do valor a pagar onde status == Pago)
-total_pago = float(fdf.loc[fdf["status"] == "Pago", "valor_a_pagar"].sum())
+qtd_pagos = int((fdf["status"] == "Pago").sum())  # ✅ QUANTIDADE DE PESSOAS PAGAS
 
 st.markdown(f"<p class='subtle'>Total de registros filtrados: <b>{total_registros}</b></p>", unsafe_allow_html=True)
 
@@ -281,7 +275,7 @@ st.markdown(
       <div class="kpi"><h4>💰 Total emprestado</h4><p class="big">{brl(total_emprestado)}</p><p class="small">soma do valor emprestado</p></div>
       <div class="kpi"><h4>📥 Total a receber</h4><p class="big">{brl(total_a_receber)}</p><p class="small">soma do valor a pagar</p></div>
       <div class="kpi"><h4>📈 Lucro estimado</h4><p class="big">{brl(lucro_total)}</p><p class="small">a pagar − emprestado</p></div>
-      <div class="kpi"><h4>💳 Valores pagos</h4><p class="big">{brl(total_pago)}</p><p class="small">soma (Status = Pago)</p></div>
+      <div class="kpi"><h4>💳 Pagos</h4><p class="big">{qtd_pagos}</p><p class="small">qtd (Status = Pago)</p></div>
       <div class="kpi"><h4>⏳ Em aberto</h4><p class="big">{qtd_abertos}</p><p class="small">a vencer / pendente</p></div>
       <div class="kpi"><h4>⚠️ Vencidos</h4><p class="big">{qtd_vencidos}</p><p class="small">vencimento &lt; hoje</p></div>
     </div>
@@ -314,6 +308,7 @@ with g1:
         hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
         customdata=status_value["label"],
     )
+
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -327,6 +322,7 @@ with g2:
     s = tmp["valor_emprestado"].resample("7D").sum()
     by_7d = s.reset_index()
     by_7d.columns = ["inicio_periodo", "total"]
+
     by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"])
     by_7d["periodo_label"] = by_7d["inicio_periodo"].dt.strftime("%d/%m/%Y")
     by_7d["label"] = by_7d["total"].apply(brl)
