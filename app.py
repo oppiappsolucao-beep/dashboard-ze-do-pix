@@ -121,7 +121,6 @@ def load_data_cached(url: str) -> pd.DataFrame:
     return pd.read_csv(url)
 
 def load_data(url: str, bust: bool = False) -> pd.DataFrame:
-    # cache-buster para evitar cache de proxy/CDN
     if bust:
         url = url + f"&_ts={int(time.time()*1000)}"
     return load_data_cached(url)
@@ -159,7 +158,6 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
-# Colunas esperadas
 def pick(name):
     for c in raw.columns:
         if c.strip().lower() == name.strip().lower():
@@ -188,7 +186,6 @@ df["data_pagamento"] = df[c_venc].apply(parse_date_br)
 df["valor_emprestado"] = df[c_ve].apply(parse_brl_money)
 df["valor_a_pagar"] = df[c_vp].apply(parse_brl_money)
 
-# lucro: usa coluna se existir, senão calcula
 if c_luc is not None:
     df["lucro"] = df[c_luc].apply(parse_brl_money)
     if float(df["lucro"].sum()) == 0.0:
@@ -261,7 +258,7 @@ st.markdown("")
 # =========================================
 g1, g2 = st.columns([1, 1], gap="large")
 
-# ✅ AJUSTE 2: Status por vencimento (mostrar VALOR total, não %)
+# ✅ Status por vencimento (VALOR total)
 with g1:
     st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
 
@@ -274,31 +271,25 @@ with g1:
 
     fig = px.pie(status_value, names="status", values="total", hole=0.6)
     fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, showlegend=True)
-
-    # Mostra valores (sem porcentagem)
     fig.update_traces(
         textinfo="label+value",
         hovertemplate="Status: %{label}<br>Total a pagar: R$ %{value:,.2f}<extra></extra>",
     )
-
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ AJUSTE 1: Valor emprestado por dia -> linha + agrupado 7 em 7 dias
+# ✅ Valor emprestado em linha (7 em 7 dias) - corrigido
 with g2:
     st.markdown("<div class='card'><h3>📈 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
 
     tmp = fdf.dropna(subset=["data_dia"]).copy()
-    tmp = tmp.set_index(pd.to_datetime(tmp["data_dia"]))
+    tmp["data_dia"] = pd.to_datetime(tmp["data_dia"])
+    tmp = tmp.set_index("data_dia")
 
-    by_7d = (
-        tmp["valor_emprestado"]
-        .resample("7D")
-        .sum()
-        .reset_index()
-        .rename(columns={"index": "inicio_periodo", "valor_emprestado": "total"})
-    )
+    s = tmp["valor_emprestado"].resample("7D").sum()
 
+    by_7d = s.reset_index()
+    by_7d.columns = ["inicio_periodo", "total"]
     by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"]).dt.date
 
     fig2 = px.line(by_7d, x="inicio_periodo", y="total", markers=True)
@@ -315,6 +306,7 @@ g3, g4 = st.columns([1, 1], gap="large")
 
 with g3:
     st.markdown("<div class='card'><h3>🏆 Top 10 (maior valor emprestado)</h3>", unsafe_allow_html=True)
+
     top = (
         fdf.groupby(fdf[c_nome].astype(str))["valor_emprestado"]
         .sum()
@@ -323,12 +315,13 @@ with g3:
         .reset_index()
         .rename(columns={c_nome: "nome", "valor_emprestado": "total"})
     )
+
     fig3 = px.bar(top, x="nome", y="total")
     fig3.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="")
     st.plotly_chart(fig3, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ AJUSTE 3: Vencimentos -> linha + valores exibidos
+# ✅ Vencimentos linha + valores exibidos
 with g4:
     st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
 
@@ -342,7 +335,6 @@ with g4:
 
     fig4 = px.line(venc, x="data", y="total", markers=True, text="total")
     fig4.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360)
-
     fig4.update_traces(
         textposition="top center",
         hovertemplate="Data: %{x}<br>Total a pagar: R$ %{y:,.2f}<extra></extra>",
@@ -354,7 +346,7 @@ with g4:
 st.markdown("")
 
 # =========================================
-# TABELA (CORRIGIDA: sem KeyError)
+# TABELA
 # =========================================
 st.markdown("<div class='card'><h3>🧾 Registros</h3>", unsafe_allow_html=True)
 
