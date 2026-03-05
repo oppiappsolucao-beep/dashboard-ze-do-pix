@@ -4,11 +4,16 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from datetime import date
+from streamlit_autorefresh import st_autorefresh  # ✅ auto-refresh
 
 # =========================================
 # CONFIG
 # =========================================
 st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
+
+# 🔄 Atualiza automaticamente a página (em ms)
+# Ajuste aqui: 5_000 = 5s | 10_000 = 10s
+st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
 
 SHEET_ID = "1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg"
 GID = "0"
@@ -110,11 +115,13 @@ def brl(v: float) -> str:
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
 
-@st.cache_data(ttl=60, show_spinner=False)
+# ✅ cache curtinho para atualizar quase imediato
+@st.cache_data(ttl=5, show_spinner=False)
 def load_data_cached(url: str) -> pd.DataFrame:
     return pd.read_csv(url)
 
 def load_data(url: str, bust: bool = False) -> pd.DataFrame:
+    # cache-buster para evitar cache de proxy/CDN
     if bust:
         url = url + f"&_ts={int(time.time()*1000)}"
     return load_data_cached(url)
@@ -323,8 +330,7 @@ view = fdf.copy()
 view["Lucro (calc)"] = view["lucro"]
 view["Status"] = view["status"]
 
-# ✅ CORREÇÃO:
-# Ordena primeiro (com data_dia existente), depois seleciona colunas para exibir.
+# ✅ Ordena primeiro, depois recorta colunas
 table_cols = show_cols + ["Lucro (calc)", "Status"]
 view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
 
