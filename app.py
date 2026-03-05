@@ -261,26 +261,51 @@ st.markdown("")
 # =========================================
 g1, g2 = st.columns([1, 1], gap="large")
 
+# ✅ AJUSTE 2: Status por vencimento (mostrar VALOR total, não %)
 with g1:
-    st.markdown("<div class='card'><h3>📌 Status por vencimento</h3>", unsafe_allow_html=True)
-    status_counts = fdf["status"].value_counts().reset_index()
-    status_counts.columns = ["status", "total"]
-    fig = px.pie(status_counts, names="status", values="total", hole=0.6)
-    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360)
+    st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
+
+    status_value = (
+        fdf.groupby("status")["valor_a_pagar"]
+        .sum()
+        .reset_index()
+        .rename(columns={"valor_a_pagar": "total"})
+    )
+
+    fig = px.pie(status_value, names="status", values="total", hole=0.6)
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, showlegend=True)
+
+    # Mostra valores (sem porcentagem)
+    fig.update_traces(
+        textinfo="label+value",
+        hovertemplate="Status: %{label}<br>Total a pagar: R$ %{value:,.2f}<extra></extra>",
+    )
+
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ✅ AJUSTE 1: Valor emprestado por dia -> linha + agrupado 7 em 7 dias
 with g2:
-    st.markdown("<div class='card'><h3>📊 Valor emprestado por dia</h3>", unsafe_allow_html=True)
-    by_day = (
-        fdf.dropna(subset=["data_dia"])
-        .groupby(fdf["data_dia"].dt.date)["valor_emprestado"]
+    st.markdown("<div class='card'><h3>📈 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
+
+    tmp = fdf.dropna(subset=["data_dia"]).copy()
+    tmp = tmp.set_index(pd.to_datetime(tmp["data_dia"]))
+
+    by_7d = (
+        tmp["valor_emprestado"]
+        .resample("7D")
         .sum()
         .reset_index()
-        .rename(columns={"data_dia": "dia", "valor_emprestado": "total"})
+        .rename(columns={"index": "inicio_periodo", "valor_emprestado": "total"})
     )
-    fig2 = px.bar(by_day, x="dia", y="total")
+
+    by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"]).dt.date
+
+    fig2 = px.line(by_7d, x="inicio_periodo", y="total", markers=True)
     fig2.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360)
+    fig2.update_traces(
+        hovertemplate="Início do período: %{x}<br>Total emprestado: R$ %{y:,.2f}<extra></extra>"
+    )
     st.plotly_chart(fig2, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -303,8 +328,10 @@ with g3:
     st.plotly_chart(fig3, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ✅ AJUSTE 3: Vencimentos -> linha + valores exibidos
 with g4:
     st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
+
     venc = (
         fdf.dropna(subset=["data_pagamento"])
         .groupby(fdf["data_pagamento"].dt.date)["valor_a_pagar"]
@@ -312,8 +339,15 @@ with g4:
         .reset_index()
         .rename(columns={"data_pagamento": "data", "valor_a_pagar": "total"})
     )
-    fig4 = px.line(venc, x="data", y="total", markers=True)
+
+    fig4 = px.line(venc, x="data", y="total", markers=True, text="total")
     fig4.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360)
+
+    fig4.update_traces(
+        textposition="top center",
+        hovertemplate="Data: %{x}<br>Total a pagar: R$ %{y:,.2f}<extra></extra>",
+    )
+
     st.plotly_chart(fig4, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -330,7 +364,6 @@ view = fdf.copy()
 view["Lucro (calc)"] = view["lucro"]
 view["Status"] = view["status"]
 
-# ✅ Ordena primeiro, depois recorta colunas
 table_cols = show_cols + ["Lucro (calc)", "Status"]
 view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
 
