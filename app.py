@@ -3,7 +3,7 @@ import re
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from datetime import date
+from datetime import date, timedelta
 from streamlit_autorefresh import st_autorefresh  # ✅ auto-refresh
 
 # =========================================
@@ -122,26 +122,17 @@ def load_data(url: str, bust: bool = False) -> pd.DataFrame:
     return load_data_cached(url)
 
 def normalize_status(s: str) -> str:
-    """
-    Converte textos variados da coluna G para categorias:
-    - Em aberto
-    - Vencido
-    - Pago
-    - Outros (mantém como está)
-    """
     if s is None:
         return ""
     t = str(s).strip().lower()
     if t == "" or t == "nan":
         return ""
-
     if any(k in t for k in ["pago", "paga", "recebid", "quitad", "liquidad"]):
         return "Pago"
     if any(k in t for k in ["a vencer", "aberto", "em aberto", "pendente"]):
         return "Em aberto"
     if any(k in t for k in ["vencid", "atras"]):
         return "Vencido"
-
     return str(s).strip()
 
 # =========================================
@@ -156,7 +147,6 @@ with l:
         """,
         unsafe_allow_html=True,
     )
-
 with r:
     st.markdown("<div class='btn-navy'>", unsafe_allow_html=True)
     refresh_now = st.button("🔄 Atualizar agora", use_container_width=True)
@@ -187,7 +177,7 @@ c_vp     = pick("Valor a pagar")
 c_venc   = pick("Data do pagamento")
 c_tel    = pick("Telefone")
 c_luc    = pick("Lucro")
-c_status = pick("Status")  # ✅ COLUNA G
+c_status = pick("Status")
 
 needed = [c_data, c_nome, c_ve, c_vp, c_venc]
 if any(x is None for x in needed):
@@ -203,7 +193,6 @@ df["data_pagamento"] = df[c_venc].apply(parse_date_br)
 df["valor_emprestado"] = df[c_ve].apply(parse_brl_money)
 df["valor_a_pagar"] = df[c_vp].apply(parse_brl_money)
 
-# lucro: usa coluna se existir, senão calcula
 if c_luc is not None:
     df["lucro"] = df[c_luc].apply(parse_brl_money)
     if float(df["lucro"].sum()) == 0.0:
@@ -214,7 +203,7 @@ else:
 df["mes_ref"] = df["data_dia"].dt.strftime("%m/%Y")
 
 # =========================================
-# STATUS (vem da coluna G, com fallback se vazio)
+# STATUS
 # =========================================
 today = pd.to_datetime(date.today())
 
@@ -256,7 +245,7 @@ if nome_busca.strip():
     fdf = fdf[fdf[c_nome].astype(str).str.contains(nome_busca.strip(), case=False, na=False)]
 
 # =========================================
-# KPIs (✅ trocado: Pagos = QUANTIDADE)
+# KPIs
 # =========================================
 total_registros = int(len(fdf))
 total_emprestado = float(fdf["valor_emprestado"].sum())
@@ -265,7 +254,7 @@ lucro_total = float(fdf["lucro"].sum())
 
 qtd_abertos = int((fdf["status"] == "Em aberto").sum())
 qtd_vencidos = int((fdf["status"] == "Vencido").sum())
-qtd_pagos = int((fdf["status"] == "Pago").sum())  # ✅ QUANTIDADE DE PESSOAS PAGAS
+qtd_pagos = int((fdf["status"] == "Pago").sum())
 
 st.markdown(f"<p class='subtle'>Total de registros filtrados: <b>{total_registros}</b></p>", unsafe_allow_html=True)
 
@@ -312,27 +301,46 @@ with g1:
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ✅ AJUSTE AQUI: ÚLTIMOS 7 DIAS (por dia)
 with g2:
-    st.markdown("<div class='card'><h3>📊 Valor emprestado (a cada 7 dias)</h3>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><h3>📊 Valor emprestado (últimos 7 dias)</h3>", unsafe_allow_html=True)
 
     tmp = fdf.dropna(subset=["data_dia"]).copy()
-    tmp["data_dia"] = pd.to_datetime(tmp["data_dia"])
-    tmp = tmp.set_index("data_dia")
+    tmp["data_dia"] = pd.to_datetime(tmp["data_dia"]).dt.date
 
-    s = tmp["valor_emprestado"].resample("7D").sum()
-    by_7d = s.reset_index()
-    by_7d.columns = ["inicio_periodo", "total"]
+    hoje = date.today()
+    inicio = hoje - timedelta(days=6)  # últimos 7 dias (inclui hoje)
+    tmp = tmp[tmp["data_dia"] >= inicio]
 
-    by_7d["inicio_periodo"] = pd.to_datetime(by_7d["inicio_periodo"])
-    by_7d["periodo_label"] = by_7d["inicio_periodo"].dt.strftime("%d/%m/%Y")
-    by_7d["label"] = by_7d["total"].apply(brl)
+    last7 = (
+        tmp.groupby("data_dia")["valor_emprestado"]
+        .sum()
+        .reset_index()
+        .rename(columns={"data_dia": "dia", "valor_emprestado": "total"})
+    )
 
-    TOP_N = 12
-    by_7d = by_7d.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
+    # garante que todos os 7 dias apareçam (mesmo sem lançamento)
+    full_days = pd.DataFrame({"dia": [inicio + timedelta(days=i) for i in range(7)]})
+    last7 = full_days.merge(last7, on="dia", how="left").fillna({"total": 0.0})
 
-    fig2 = px.bar(by_7d, y="periodo_label", x="total", orientation="h", text="label")
-    fig2.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total (R$)", yaxis_title="Período (início)")
-    fig2.update_traces(textposition="outside", hovertemplate="Período: %{y}<br>Total emprestado: %{text}<extra></extra>", cliponaxis=False)
+    last7["dia_label"] = pd.to_datetime(last7["dia"]).dt.strftime("%d/%m/%Y")
+    last7["label"] = last7["total"].apply(brl)
+
+    # barra horizontal estilo estatístico
+    last7 = last7.sort_values("dia", ascending=False)  # mais recente em cima
+
+    fig2 = px.bar(last7, y="dia_label", x="total", orientation="h", text="label")
+    fig2.update_layout(
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=360,
+        xaxis_title="Total (R$)",
+        yaxis_title="Dia",
+    )
+    fig2.update_traces(
+        textposition="outside",
+        hovertemplate="Dia: %{y}<br>Total emprestado: %{text}<extra></extra>",
+        cliponaxis=False,
+    )
 
     st.plotly_chart(fig2, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
