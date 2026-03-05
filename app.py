@@ -4,12 +4,16 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from datetime import date, timedelta
+import requests
+from io import StringIO
 from streamlit_autorefresh import st_autorefresh  # ✅ auto-refresh
 
 # =========================================
 # CONFIG
 # =========================================
 st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
+
+# Atualiza a página automaticamente (em ms)
 st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
 
 SHEET_ID = "1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg"
@@ -93,6 +97,8 @@ def parse_brl_money(x) -> float:
         return 0.0
     s = s.replace("R$", "").replace(" ", "")
     s = re.sub(r"[^0-9,.\-]", "", s)
+
+    # "1.234,56" -> "1234.56"
     if "," in s and "." in s:
         s = s.replace(".", "").replace(",", ".")
     elif "," in s:
@@ -105,21 +111,13 @@ def parse_brl_money(x) -> float:
 def parse_date_br(x):
     if pd.isna(x) or str(x).strip() == "":
         return pd.NaT
+    # suporta "dd/mm/aaaa" e também iso "aaaa-mm-dd"
     return pd.to_datetime(x, errors="coerce", dayfirst=True)
 
 def brl(v: float) -> str:
     s = f"{v:,.2f}"
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
-
-@st.cache_data(ttl=5, show_spinner=False)
-def load_data_cached(url: str) -> pd.DataFrame:
-    return pd.read_csv(url)
-
-def load_data(url: str, bust: bool = False) -> pd.DataFrame:
-    if bust:
-        url = url + f"&_ts={int(time.time()*1000)}"
-    return load_data_cached(url)
 
 def normalize_status(s: str) -> str:
     if s is None:
@@ -134,6 +132,16 @@ def normalize_status(s: str) -> str:
     if any(k in t for k in ["vencid", "atras"]):
         return "Vencido"
     return str(s).strip()
+
+def load_sheet_no_cache(csv_base_url: str) -> pd.DataFrame:
+    """
+    ✅ Sem cache + cache-buster sempre
+    """
+    url = csv_base_url + f"&_ts={int(time.time()*1000)}"
+    r = requests.get(url, timeout=25, headers={"Cache-Control": "no-cache"})
+    r.raise_for_status()
+    text = r.text
+    return pd.read_csv(StringIO(text))
 
 # =========================================
 # HEADER
@@ -152,13 +160,16 @@ with r:
     refresh_now = st.button("🔄 Atualizar agora", use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+if refresh_now:
+    st.rerun()
+
 # =========================================
-# LOAD
+# LOAD (SEM CACHE)
 # =========================================
 csv_url = gsheet_csv_url(SHEET_ID, GID)
 
 try:
-    raw = load_data(csv_url, bust=refresh_now).copy()
+    raw = load_sheet_no_cache(csv_url).copy()
 except Exception as e:
     st.error("Não consegui ler a planilha. Garanta que ela está como 'Qualquer pessoa com o link (Leitor)'.")
     st.exception(e)
@@ -193,6 +204,7 @@ df["data_pagamento"] = df[c_venc].apply(parse_date_br)
 df["valor_emprestado"] = df[c_ve].apply(parse_brl_money)
 df["valor_a_pagar"] = df[c_vp].apply(parse_brl_money)
 
+# lucro: usa coluna se existir, senão calcula
 if c_luc is not None:
     df["lucro"] = df[c_luc].apply(parse_brl_money)
     if float(df["lucro"].sum()) == 0.0:
@@ -297,11 +309,10 @@ with g1:
         hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
         customdata=status_value["label"],
     )
-
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ✅ AJUSTE AQUI: ÚLTIMOS 7 DIAS (por dia)
+# ✅ ÚLTIMOS 7 DIAS (por dia)
 with g2:
     st.markdown("<div class='card'><h3>📊 Valor emprestado (últimos 7 dias)</h3>", unsafe_allow_html=True)
 
@@ -309,7 +320,7 @@ with g2:
     tmp["data_dia"] = pd.to_datetime(tmp["data_dia"]).dt.date
 
     hoje = date.today()
-    inicio = hoje - timedelta(days=6)  # últimos 7 dias (inclui hoje)
+    inicio = hoje - timedelta(days=6)
     tmp = tmp[tmp["data_dia"] >= inicio]
 
     last7 = (
@@ -319,15 +330,13 @@ with g2:
         .rename(columns={"data_dia": "dia", "valor_emprestado": "total"})
     )
 
-    # garante que todos os 7 dias apareçam (mesmo sem lançamento)
+    # garante que todos os 7 dias aparecem
     full_days = pd.DataFrame({"dia": [inicio + timedelta(days=i) for i in range(7)]})
     last7 = full_days.merge(last7, on="dia", how="left").fillna({"total": 0.0})
 
     last7["dia_label"] = pd.to_datetime(last7["dia"]).dt.strftime("%d/%m/%Y")
     last7["label"] = last7["total"].apply(brl)
-
-    # barra horizontal estilo estatístico
-    last7 = last7.sort_values("dia", ascending=False)  # mais recente em cima
+    last7 = last7.sort_values("dia", ascending=False)
 
     fig2 = px.bar(last7, y="dia_label", x="total", orientation="h", text="label")
     fig2.update_layout(
@@ -386,7 +395,6 @@ with g4:
     fig4 = px.bar(venc, y="data_label", x="total", orientation="h", text="label")
     fig4.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total a pagar (R$)", yaxis_title="Data")
     fig4.update_traces(textposition="outside", hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>", cliponaxis=False)
-
     st.plotly_chart(fig4, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
