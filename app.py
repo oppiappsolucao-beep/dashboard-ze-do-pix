@@ -1,20 +1,36 @@
-import time
-import re
-from datetime import date, timedelta
-
-import gspread
+import streamlit as st
 import pandas as pd
 import plotly.express as px
-import streamlit as st
+import gspread
 from google.oauth2.service_account import Credentials
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime, date
+import re
 
-# ===============================
-# LOGIN
-# ===============================
+# ==========================================
+# CONFIG
+# ==========================================
+st.set_page_config(
+    page_title="Dashboard — Zé do Pix",
+    page_icon="💸",
+    layout="wide"
+)
+
 APP_USER = "operacao"
 APP_PASS = "100316"
 
+# ID da sua planilha
+SHEET_ID = "COLE_AQUI_O_ID_DA_PLANILHA"
+
+# Nome da aba (se quiser usar por nome)
+WORKSHEET_NAME = "Página1"
+
+# Se preferir por índice da aba, use:
+WORKSHEET_INDEX = 0
+
+
+# ==========================================
+# LOGIN
+# ==========================================
 def ensure_login() -> bool:
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
@@ -22,631 +38,790 @@ def ensure_login() -> bool:
     if st.session_state.logged_in:
         return True
 
-    st.set_page_config(page_title="Acesso", page_icon="🔒", layout="wide")
-
     st.markdown("""
     <style>
-        .stApp { background:#F3F4F6; }
-        .block-container { padding-top: 14px; padding-bottom: 14px; }
+        .stApp {
+            background: #f4f7fb;
+        }
 
-        .login-wrap{
-            width: min(1100px, 96vw);
-            margin: 6vh auto 0 auto;
-            padding: 0 14px;
+        .login-wrap {
+            max-width: 430px;
+            margin: 8vh auto 0 auto;
+            padding: 0 16px;
             font-family: Inter, system-ui, -apple-system, Segoe UI, Arial, sans-serif;
         }
 
-        .login-card{
-            background:#ffffff;
-            border-radius:18px;
-            border:1px solid rgba(11,31,59,0.08);
-            box-shadow:0 12px 28px rgba(16,42,82,0.08);
-            padding: 22px;
+        .login-card {
+            background: #ffffff;
+            border-radius: 22px;
+            padding: 34px 28px 28px 28px;
+            box-shadow: 0 10px 35px rgba(16, 24, 40, 0.08);
+            border: 1px solid rgba(15, 23, 42, 0.06);
         }
 
-        .login-topbar{
-            height: 54px;
-            background:#ffffff;
-            border-radius: 18px;
-            border:1px solid rgba(11,31,59,0.08);
-            box-shadow:0 12px 28px rgba(16,42,82,0.08);
-            margin-bottom: 14px;
+        .login-title {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 800;
+            color: #0f2d5c;
+            margin-bottom: 8px;
         }
 
-        .stTextInput > div > div,
-        .stPasswordInput > div > div{
-            background:#EEF2F7 !important;
+        .login-subtitle {
+            text-align: center;
+            color: #667085;
+            font-size: 15px;
+            margin-bottom: 26px;
+        }
+
+        .login-hint {
+            text-align: center;
+            margin-top: 14px;
+            color: #98a2b3;
+            font-size: 12px;
+        }
+
+        div[data-testid="stForm"] {
+            border: 0 !important;
+            background: transparent !important;
+        }
+
+        .stTextInput > div > div > input {
             border-radius: 12px !important;
-            border: 1px solid rgba(11,31,59,0.10) !important;
+            border: 1px solid #d0d5dd !important;
+            padding: 12px 14px !important;
+            font-size: 15px !important;
         }
 
-        .login-btn button{
-            background:#000000 !important;
-            color:#ffffff !important;
-            border:0 !important;
-            width: 140px !important;
-            padding: 10px 14px !important;
-            border-radius: 10px !important;
+        .stButton > button,
+        div[data-testid="stFormSubmitButton"] > button {
+            width: 100% !important;
+            border-radius: 12px !important;
+            background: #111827 !important;
+            color: white !important;
+            border: none !important;
+            padding: 12px 16px !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
-        }
-
-        label { font-weight: 700 !important; color:#111827 !important; }
-
-        @media (max-width: 600px){
-            .login-btn button{ width: 100% !important; }
-            .login-topbar{ height: 46px; }
-            .login-card{ padding: 18px; }
         }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
-    st.markdown('<div class="login-topbar"></div>', unsafe_allow_html=True)
     st.markdown('<div class="login-card">', unsafe_allow_html=True)
+    st.markdown('<div class="login-title">💸 Zé do Pix</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-subtitle">Acesse o dashboard financeiro</div>', unsafe_allow_html=True)
 
-    usuario = st.text_input("usuario", key="login_user", placeholder="usuario")
-    senha = st.text_input("senha", key="login_pass", placeholder="senha", type="password")
-
-    st.markdown('<div class="login-btn">', unsafe_allow_html=True)
-    entrar = st.button("Entrar")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    with st.form("login_form", clear_on_submit=False):
+        usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
+        senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+        entrar = st.form_submit_button("Entrar")
 
     if entrar:
-        if usuario.strip() == APP_USER and senha.strip() == APP_PASS:
+        if usuario == APP_USER and senha == APP_PASS:
             st.session_state.logged_in = True
-            time.sleep(0.15)
             st.rerun()
         else:
             st.error("Usuário ou senha inválidos.")
 
+    st.markdown('<div class="login-hint">Acesso restrito</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
     return False
 
+
+# ==========================================
+# GOOGLE SHEETS
+# ==========================================
+def normalize_private_key(pk: str) -> str:
+    if not pk:
+        return pk
+    return pk.replace("\\n", "\n")
+
+
+@st.cache_resource
+def get_gsheet_client():
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds_dict = {
+        "type": st.secrets["gcp_service_account"]["type"],
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
+        "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+        "private_key": normalize_private_key(st.secrets["gcp_service_account"]["private_key"]),
+        "client_email": st.secrets["gcp_service_account"]["client_email"],
+        "client_id": st.secrets["gcp_service_account"]["client_id"],
+        "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+        "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"],
+    }
+
+    credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(credentials)
+    return client
+
+
+@st.cache_resource
+def get_worksheet():
+    client = get_gsheet_client()
+    sh = client.open_by_key(SHEET_ID)
+
+    try:
+        ws = sh.worksheet(WORKSHEET_NAME)
+    except Exception:
+        ws = sh.get_worksheet(WORKSHEET_INDEX)
+
+    return ws
+
+
+@st.cache_data(ttl=30)
+def load_sheet_data():
+    ws = get_worksheet()
+    values = ws.get_all_values()
+
+    if not values or len(values) < 2:
+        return pd.DataFrame(), []
+
+    headers = values[0]
+    rows = values[1:]
+
+    max_cols = len(headers)
+    rows = [row + [""] * (max_cols - len(row)) if len(row) < max_cols else row[:max_cols] for row in rows]
+
+    df = pd.DataFrame(rows, columns=headers)
+    df["_row_number"] = range(2, len(df) + 2)
+    return df, headers
+
+
+def find_col(headers, possible_names):
+    headers_map = {str(h).strip().lower(): idx + 1 for idx, h in enumerate(headers)}
+    for name in possible_names:
+        key = name.strip().lower()
+        if key in headers_map:
+            return headers_map[key], name
+    return None, None
+
+
+def update_status_in_sheet(row_number, new_status):
+    ws = get_worksheet()
+    _, headers = load_sheet_data()
+
+    possible_status_cols = [
+        "Status (usado no dash)",
+        "Status usado no dash",
+        "Status Dashboard",
+        "Status do Dash",
+        "Status"
+    ]
+
+    status_col_idx, _ = find_col(headers, possible_status_cols)
+
+    if status_col_idx is None:
+        raise ValueError(
+            "Nenhuma coluna de status encontrada. Crie uma coluna chamada "
+            "'Status (usado no dash)' ou 'Status'."
+        )
+
+    ws.update_cell(int(row_number), int(status_col_idx), new_status)
+    load_sheet_data.clear()
+
+
+# ==========================================
+# FUNÇÕES AUXILIARES
+# ==========================================
+def clean_money(value):
+    if pd.isna(value):
+        return 0.0
+
+    s = str(value).strip()
+    if s == "":
+        return 0.0
+
+    s = s.replace("R$", "").replace(" ", "")
+
+    # formato BR: 1.234,56
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+
+    # formato simples com vírgula decimal: 123,45
+    elif "," in s and "." not in s:
+        s = s.replace(".", "").replace(",", ".")
+
+    # remove caracteres estranhos
+    s = re.sub(r"[^0-9.\-]", "", s)
+
+    try:
+        return float(s)
+    except:
+        return 0.0
+
+
+def parse_date(value):
+    if pd.isna(value):
+        return pd.NaT
+
+    s = str(value).strip()
+    if s == "":
+        return pd.NaT
+
+    # tenta formatos comuns
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"):
+        try:
+            return pd.to_datetime(datetime.strptime(s[:10], fmt)).date()
+        except:
+            pass
+
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="coerce").date()
+    except:
+        return pd.NaT
+
+
+def fmt_brl(value):
+    try:
+        v = float(value)
+    except:
+        v = 0.0
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def choose_column(df, options):
+    for col in options:
+        if col in df.columns:
+            return col
+    return None
+
+
+def build_dashboard_status(row, dash_col, status_col, due_col):
+    # prioridade 1: coluna manual do dashboard
+    if dash_col and str(row.get(dash_col, "")).strip() != "":
+        return str(row.get(dash_col, "")).strip()
+
+    # prioridade 2: se status estiver pago
+    if status_col:
+        raw = str(row.get(status_col, "")).strip().lower()
+        if raw in ["pago", "paga", "quitado", "recebido"]:
+            return "Pago"
+
+    # prioridade 3: calcula por vencimento
+    due = row.get("_due_date")
+    if pd.isna(due) or due is None:
+        return "Em aberto"
+
+    hoje = date.today()
+    if due < hoje:
+        return "Vencido"
+    return "Em aberto"
+
+
+# ==========================================
+# APP
+# ==========================================
 if not ensure_login():
     st.stop()
 
-# ===============================
-# CONFIG
-# ===============================
-st.set_page_config(page_title="Zé do Pix — Dashboard", page_icon="💸", layout="wide")
-st_autorefresh(interval=10_000, key="ze_do_pix_autorefresh")
+# CSS principal
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1.4rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
 
-SHEET_ID = "1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg"
-WORKSHEET_INDEX = 0
+    .title-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 8px;
+    }
 
-NAVY = "#0B1F3B"
-NAVY_2 = "#102A52"
-BG = "#F5F7FB"
-CARD_BG = "#FFFFFF"
-MUTED = "#6B7280"
-
-st.markdown(
-    f"""
-    <style>
-      .stApp {{ background: {BG}; }}
-      .block-container {{ padding-top: 24px; padding-bottom: 40px; }}
-
-      .oppi-title {{
-        display:flex;
-        gap:12px;
-        align-items:center;
-        margin-bottom:6px;
-      }}
-
-      .oppi-title h1 {{
+    .page-title {
         font-size: 34px;
-        margin:0;
-        font-weight:800;
-        color:{NAVY};
-        letter-spacing:-0.6px;
-      }}
-
-      .subtle {{
-        color:{MUTED};
-        margin-top: 0px;
-      }}
-
-      .kpi-grid {{
-        display:grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 14px;
-        margin-top: 10px;
-      }}
-
-      @media (max-width: 1200px) {{
-        .kpi-grid {{
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }}
-      }}
-
-      .kpi {{
-        background:{CARD_BG};
-        border-radius: 18px;
-        padding: 16px 16px 14px 16px;
-        box-shadow: 0 10px 24px rgba(16,42,82,0.06);
-        border: 1px solid rgba(11,31,59,0.08);
-        position: relative;
-        overflow:hidden;
-        min-height: 104px;
-      }}
-
-      .kpi:before {{
-        content:"";
-        position:absolute;
-        left:0;
-        top:0;
-        bottom:0;
-        width: 10px;
-        background:{NAVY_2};
-        border-top-left-radius: 18px;
-        border-bottom-left-radius: 18px;
-      }}
-
-      .kpi h4 {{
-        margin:0 0 6px 0;
-        color:{NAVY};
-        font-size: 14px;
-        font-weight: 700;
-      }}
-
-      .kpi .big {{
-        font-size: 30px;
-        font-weight: 900;
-        color:{NAVY};
-        margin:0;
-        line-height: 1.0;
-      }}
-
-      .kpi .small {{
-        margin-top: 6px;
-        color:{MUTED};
-        font-size: 12px;
-      }}
-
-      .card {{
-        background:{CARD_BG};
-        border-radius: 18px;
-        padding: 14px 14px 10px 14px;
-        box-shadow: 0 10px 24px rgba(16,42,82,0.06);
-        border: 1px solid rgba(11,31,59,0.08);
-      }}
-
-      .card h3 {{
-        margin: 2px 0 12px 0;
-        color:{NAVY};
-        font-size: 16px;
         font-weight: 800;
-      }}
+        color: #0f2d5c;
+        margin: 0;
+    }
 
-      .btn-navy button {{
-        background:{NAVY} !important;
-        color:white !important;
-        border: 0 !important;
-        padding: 10px 14px !important;
+    .page-subtitle {
+        color: #667085;
+        margin-top: 6px;
+        font-size: 16px;
+    }
+
+    .top-btn button {
         border-radius: 12px !important;
-      }}
+        min-height: 44px !important;
+    }
 
-      .btn-outline button {{
-        background: white !important;
-        color: {NAVY} !important;
-        border: 1px solid rgba(11,31,59,0.20) !important;
-        padding: 10px 14px !important;
-        border-radius: 12px !important;
-        font-weight: 700 !important;
-      }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    .kpi-card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 18px 18px 14px 18px;
+        box-shadow: 0 6px 18px rgba(16,24,40,0.05);
+        border-left: 10px solid #0f2d5c;
+        min-height: 125px;
+    }
 
-# ===============================
-# GOOGLE SHEETS
-# ===============================
-def get_gsheet_client():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scopes,
-    )
-    return gspread.authorize(creds)
+    .kpi-title {
+        font-size: 15px;
+        color: #0f172a;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
 
-def load_sheet_api(sheet_id: str, worksheet_index: int = 0):
-    client = get_gsheet_client()
-    sh = client.open_by_key(sheet_id)
-    ws = sh.get_worksheet(worksheet_index)
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
-    df["row_number"] = range(2, len(df) + 2)
-    return df, ws
+    .kpi-value {
+        font-size: 28px;
+        font-weight: 800;
+        color: #0f2d5c;
+        line-height: 1.1;
+    }
 
-def update_status_in_sheet(ws, row_number: int, new_status: str):
-    ws.update_cell(row_number, 7, new_status)  # coluna G
+    .kpi-sub {
+        margin-top: 6px;
+        font-size: 13px;
+        color: #667085;
+    }
 
-# ===============================
-# HELPERS
-# ===============================
-def parse_brl_money(x) -> float:
-    if pd.isna(x):
-        return 0.0
-    s = str(x).strip()
-    if s == "":
-        return 0.0
-    s = s.replace("R$", "").replace(" ", "")
-    s = re.sub(r"[^0-9,.\-]", "", s)
-    if "," in s and "." in s:
-        s = s.replace(".", "").replace(",", ".")
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
+    .section-card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 14px 16px 8px 16px;
+        box-shadow: 0 6px 18px rgba(16,24,40,0.05);
+    }
 
-def parse_date_br(x):
-    if pd.isna(x) or str(x).strip() == "":
-        return pd.NaT
-    return pd.to_datetime(x, errors="coerce", dayfirst=True)
+    .section-title {
+        font-size: 15px;
+        font-weight: 800;
+        color: #0f2d5c;
+        margin: 4px 0 12px 0;
+    }
 
-def brl(v: float) -> str:
-    s = f"{v:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
+    .status-chip {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+    }
 
-def normalize_status(s: str) -> str:
-    if s is None:
-        return ""
-    t = str(s).strip().lower()
-    if t == "" or t == "nan":
-        return ""
-    if any(k in t for k in ["pago", "paga", "recebid", "quitad", "liquidad"]):
-        return "Pago"
-    if any(k in t for k in ["a vencer", "aberto", "em aberto", "pendente"]):
-        return "Em aberto"
-    if any(k in t for k in ["vencid", "atras"]):
-        return "Vencido"
-    return str(s).strip()
+    .chip-pago {
+        background: #e7f8ee;
+        color: #067647;
+    }
 
-def pick(df, name):
-    for c in df.columns:
-        if str(c).strip().lower() == name.strip().lower():
-            return c
-    return None
+    .chip-aberto {
+        background: #eef4ff;
+        color: #1849a9;
+    }
 
-# ===============================
-# LOAD
-# ===============================
+    .chip-vencido {
+        background: #fff1f3;
+        color: #c01048;
+    }
+
+    .small-btn button {
+        border-radius: 10px !important;
+        padding: 0.3rem 0.5rem !important;
+        font-size: 13px !important;
+    }
+
+    hr {
+        margin-top: 1.2rem !important;
+        margin-bottom: 1.2rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# topo
+top1, top2, top3 = st.columns([4, 2, 2])
+
+with top1:
+    st.markdown('<div class="page-title">💸 Dashboard — Zé do Pix</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Painel de lançamentos, vencimentos e lucro estimado.</div>', unsafe_allow_html=True)
+
+with top2:
+    if st.button("🔄 Atualizar agora", use_container_width=True):
+        load_sheet_data.clear()
+        st.rerun()
+
+with top3:
+    if st.button("Sair", use_container_width=True):
+        st.session_state.logged_in = False
+        st.rerun()
+
+st.markdown("---")
+
+# carrega planilha
 try:
-    raw, worksheet = load_sheet_api(SHEET_ID, WORKSHEET_INDEX)
+    df, headers = load_sheet_data()
 except Exception as e:
-    st.error("Erro ao conectar com Google Sheets API. Verifique Secrets, APIs do Google e compartilhamento da planilha.")
+    st.error("Erro ao conectar com Google Sheets API. Verifique Secrets e compartilhamento da planilha.")
     st.exception(e)
     st.stop()
 
-c_data = pick(raw, "Data do dia")
-c_nome = pick(raw, "Emprestado")
-c_ve = pick(raw, "Valor emprestado")
-c_vp = pick(raw, "Valor a pagar")
-c_venc = pick(raw, "Data do pagamento")
-c_tel = pick(raw, "Telefone")
-c_luc = pick(raw, "Lucro")
-c_status = pick(raw, "Status")
-
-needed = [c_data, c_nome, c_ve, c_vp, c_venc, c_status]
-if any(x is None for x in needed):
-    st.error("Títulos de colunas diferentes do esperado.")
-    st.write("Encontrei:", list(raw.columns))
+if df.empty:
+    st.warning("A planilha está vazia ou sem linhas de dados.")
     st.stop()
 
-df = raw.copy()
-df["data_dia"] = df[c_data].apply(parse_date_br)
-df["data_pagamento"] = df[c_venc].apply(parse_date_br)
-df["valor_emprestado"] = df[c_ve].apply(parse_brl_money)
-df["valor_a_pagar"] = df[c_vp].apply(parse_brl_money)
+# descobrir colunas
+date_col = choose_column(df, ["Data do dia", "Data", "Data Empréstimo", "Data do empréstimo"])
+name_col = choose_column(df, ["Emprestado", "Cliente", "Nome", "Nome do cliente"])
+phone_col = choose_column(df, ["Telefone", "WhatsApp", "Celular"])
+loan_col = choose_column(df, ["Valor emprestado", "Valor Emprestado", "Emprestado (R$)"])
+pay_col = choose_column(df, ["Valor a pagar", "Valor a Receber", "Total a pagar", "A receber"])
+due_col = choose_column(df, ["Data do pagamento", "Vencimento", "Data de vencimento", "Data Pagamento"])
+status_col = choose_column(df, ["Status"])
+dash_status_col = choose_column(df, [
+    "Status (usado no dash)",
+    "Status usado no dash",
+    "Status Dashboard",
+    "Status do Dash"
+])
 
-if c_luc is not None:
-    df["lucro"] = df[c_luc].apply(parse_brl_money)
-    if float(df["lucro"].sum()) == 0.0:
-        df["lucro"] = df["valor_a_pagar"] - df["valor_emprestado"]
+if not loan_col or not pay_col:
+    st.error("Não encontrei as colunas de valores. Verifique os nomes da planilha.")
+    st.write("Colunas encontradas:", list(df.columns))
+    st.stop()
+
+# tratamentos
+df["_loan"] = df[loan_col].apply(clean_money)
+df["_pay"] = df[pay_col].apply(clean_money)
+df["_profit"] = df["_pay"] - df["_loan"]
+
+if date_col:
+    df["_date"] = df[date_col].apply(parse_date)
 else:
-    df["lucro"] = df["valor_a_pagar"] - df["valor_emprestado"]
+    df["_date"] = pd.NaT
 
-df["mes_ref"] = df["data_dia"].dt.strftime("%m/%Y")
+if due_col:
+    df["_due_date"] = df[due_col].apply(parse_date)
+else:
+    df["_due_date"] = pd.NaT
 
-today = pd.to_datetime(date.today())
-df["status_planilha"] = df[c_status].apply(normalize_status)
-df["status_calc"] = "Em aberto"
-df.loc[df["data_pagamento"].notna() & (df["data_pagamento"] < today), "status_calc"] = "Vencido"
-df.loc[df["data_pagamento"].isna(), "status_calc"] = "Sem vencimento"
-
-df["status"] = df["status_planilha"]
-df.loc[df["status"].astype(str).str.strip() == "", "status"] = df.loc[
-    df["status"].astype(str).str.strip() == "", "status_calc"
-]
-
-# ===============================
-# HEADER
-# ===============================
-l, r = st.columns([1, 1], vertical_alignment="center")
-with l:
-    st.markdown(
-        """
-        <div class="oppi-title"><h1>💸 Dashboard — Zé do Pix</h1></div>
-        <p class="subtle">Painel de lançamentos, vencimentos e lucro estimado.</p>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with r:
-    b1, b2 = st.columns([1, 1])
-    with b1:
-        st.markdown("<div class='btn-navy'>", unsafe_allow_html=True)
-        refresh_now = st.button("🔄 Atualizar agora", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with b2:
-        st.markdown("<div class='btn-outline'>", unsafe_allow_html=True)
-        sair = st.button("Sair", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-if sair:
-    st.session_state.logged_in = False
-    st.rerun()
-
-if refresh_now:
-    st.rerun()
-
-# ===============================
-# FILTROS
-# ===============================
-st.markdown("---")
-f1, f2, f3 = st.columns([1.2, 1.2, 1.6])
-
-with f1:
-    meses = sorted([m for m in df["mes_ref"].dropna().unique().tolist() if isinstance(m, str)])
-    mes_sel = st.selectbox("Mês", options=["Todos"] + meses, index=(len(meses) if meses else 0))
-
-with f2:
-    status_opts = ["Todos"] + sorted(df["status"].dropna().unique().tolist())
-    status_sel = st.selectbox("Status", options=status_opts)
-
-with f3:
-    nome_busca = st.text_input("Buscar por nome", placeholder="Ex: Nataly, Irene...")
-
-fdf = df.copy()
-if mes_sel != "Todos":
-    fdf = fdf[fdf["mes_ref"] == mes_sel]
-if status_sel != "Todos":
-    fdf = fdf[fdf["status"] == status_sel]
-if nome_busca.strip():
-    fdf = fdf[fdf[c_nome].astype(str).str.contains(nome_busca.strip(), case=False, na=False)]
-
-# ===============================
-# KPIs
-# ===============================
-total_registros = int(len(fdf))
-total_emprestado = float(fdf["valor_emprestado"].sum())
-total_a_receber = float(fdf["valor_a_pagar"].sum())
-lucro_total = float(fdf["lucro"].sum())
-
-qtd_abertos = int((fdf["status"] == "Em aberto").sum())
-qtd_vencidos = int((fdf["status"] == "Vencido").sum())
-qtd_pagos = int((fdf["status"] == "Pago").sum())
-
-st.markdown(f"<p class='subtle'>Total de registros filtrados: <b>{total_registros}</b></p>", unsafe_allow_html=True)
-
-st.markdown(
-    f"""
-    <div class="kpi-grid">
-      <div class="kpi"><h4>💰 Total emprestado</h4><p class="big">{brl(total_emprestado)}</p><p class="small">soma do valor emprestado</p></div>
-      <div class="kpi"><h4>📥 Total a receber</h4><p class="big">{brl(total_a_receber)}</p><p class="small">soma do valor a pagar</p></div>
-      <div class="kpi"><h4>📈 Lucro estimado</h4><p class="big">{brl(lucro_total)}</p><p class="small">a pagar − emprestado</p></div>
-      <div class="kpi"><h4>💳 Pagos</h4><p class="big">{qtd_pagos}</p><p class="small">qtd (Status = Pago)</p></div>
-      <div class="kpi"><h4>⏳ Em aberto</h4><p class="big">{qtd_abertos}</p><p class="small">a vencer / pendente</p></div>
-      <div class="kpi"><h4>⚠️ Vencidos</h4><p class="big">{qtd_vencidos}</p><p class="small">vencimento &lt; hoje</p></div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+df["_dash_status"] = df.apply(
+    lambda row: build_dashboard_status(row, dash_status_col, status_col, due_col),
+    axis=1
 )
 
+# filtros
+f1, f2, f3 = st.columns(3)
+
+with f1:
+    if date_col and df["_date"].notna().any():
+        meses_validos = sorted(
+            {d.strftime("%m/%Y") for d in df["_date"] if pd.notna(d)},
+            key=lambda x: datetime.strptime(x, "%m/%Y")
+        )
+        meses_validos = list(reversed(meses_validos))
+        selected_month = st.selectbox("Mês", options=["Todos"] + meses_validos, index=1 if len(meses_validos) >= 1 else 0)
+    else:
+        selected_month = "Todos"
+        st.selectbox("Mês", options=["Todos"], index=0)
+
+with f2:
+    status_options = ["Todos", "Pago", "Em aberto", "Vencido"]
+    selected_status = st.selectbox("Status", options=status_options, index=0)
+
+with f3:
+    search_name = st.text_input("Buscar por nome", placeholder="Ex: Nataly, Irene...")
+
+df_filtrado = df.copy()
+
+if selected_month != "Todos" and date_col:
+    df_filtrado = df_filtrado[
+        df_filtrado["_date"].apply(
+            lambda d: d.strftime("%m/%Y") if pd.notna(d) else ""
+        ) == selected_month
+    ]
+
+if selected_status != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["_dash_status"] == selected_status]
+
+if search_name.strip() and name_col:
+    df_filtrado = df_filtrado[
+        df_filtrado[name_col].astype(str).str.contains(search_name, case=False, na=False)
+    ]
+
+st.markdown(f"**Total de registros filtrados: {len(df_filtrado)}**")
+
+# KPIs
+total_emprestado = df_filtrado["_loan"].sum()
+total_receber = df_filtrado["_pay"].sum()
+lucro_estimado = df_filtrado["_profit"].sum()
+qtd_pagos = (df_filtrado["_dash_status"] == "Pago").sum()
+qtd_aberto = (df_filtrado["_dash_status"] == "Em aberto").sum()
+qtd_vencidos = (df_filtrado["_dash_status"] == "Vencido").sum()
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+
+with k1:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">💰 Total emprestado</div>
+        <div class="kpi-value">{fmt_brl(total_emprestado)}</div>
+        <div class="kpi-sub">soma do valor emprestado</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with k2:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">📥 Total a receber</div>
+        <div class="kpi-value">{fmt_brl(total_receber)}</div>
+        <div class="kpi-sub">soma do valor a pagar</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with k3:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">📝 Lucro estimado</div>
+        <div class="kpi-value">{fmt_brl(lucro_estimado)}</div>
+        <div class="kpi-sub">a pagar − emprestado</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with k4:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">💳 Pagos</div>
+        <div class="kpi-value">{qtd_pagos}</div>
+        <div class="kpi-sub">qtd (Status = Pago)</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with k5:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">⏳ Em aberto</div>
+        <div class="kpi-value">{qtd_aberto}</div>
+        <div class="kpi-sub">a vencer / pendente</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with k6:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">⚠️ Vencidos</div>
+        <div class="kpi-value">{qtd_vencidos}</div>
+        <div class="kpi-sub">vencimento &lt; hoje</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.markdown("")
 
-# ===============================
+# ==========================================
 # GRÁFICOS
-# ===============================
-g1, g2 = st.columns([1, 1], gap="large")
+# ==========================================
+c1, c2 = st.columns(2)
 
-with g1:
-    st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
+with c1:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📌 Status por vencimento (valor total)</div>', unsafe_allow_html=True)
 
-    status_value = (
-        fdf.groupby("status")["valor_a_pagar"]
-        .sum()
-        .reset_index()
-        .rename(columns={"valor_a_pagar": "total"})
-    )
-    status_value["label"] = status_value["total"].apply(brl)
+    status_group = df_filtrado.groupby("_dash_status", dropna=False)["_pay"].sum().reset_index()
+    status_group.columns = ["Status", "Total"]
 
-    fig = px.pie(status_value, names="status", values="total", hole=0.6)
-    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, showlegend=True)
-    fig.update_traces(
-        textinfo="label+value",
-        hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
-        customdata=status_value["label"],
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with g2:
-    st.markdown("<div class='card'><h3>📊 Valor emprestado (últimos 7 dias)</h3>", unsafe_allow_html=True)
-
-    tmp = fdf.dropna(subset=["data_dia"]).copy()
-    tmp["data_dia"] = pd.to_datetime(tmp["data_dia"]).dt.date
-
-    if tmp.empty:
-        st.info("Sem dados com data para exibir.")
-        st.markdown("</div>", unsafe_allow_html=True)
+    if not status_group.empty and status_group["Total"].sum() > 0:
+        fig1 = px.pie(
+            status_group,
+            values="Total",
+            names="Status",
+            hole=0.55
+        )
+        fig1.update_traces(textinfo="label+value")
+        fig1.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0))
+        st.plotly_chart(fig1, use_container_width=True)
     else:
-        base = max(tmp["data_dia"])
-        inicio = base - timedelta(days=6)
+        st.info("Sem dados para o gráfico.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        tmp = tmp[(tmp["data_dia"] >= inicio) & (tmp["data_dia"] <= base)]
+with c2:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📊 Valor emprestado (últimos 7 dias)</div>', unsafe_allow_html=True)
 
-        last7 = (
-            tmp.groupby("data_dia")["valor_emprestado"]
+    if date_col and df_filtrado["_date"].notna().any():
+        hoje = date.today()
+        ultimos_7 = pd.date_range(end=pd.Timestamp(hoje), periods=7).date
+
+        rows_7 = []
+        for d in ultimos_7:
+            total_dia = df_filtrado.loc[df_filtrado["_date"] == d, "_loan"].sum()
+            rows_7.append({
+                "Dia": d.strftime("%d/%m/%Y"),
+                "Total": total_dia
+            })
+
+        df_7 = pd.DataFrame(rows_7)
+        fig2 = px.bar(df_7, x="Total", y="Dia", orientation="h", text="Total")
+        fig2.update_traces(texttemplate="R$ %{text:,.2f}", textposition="outside")
+        fig2.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Dia", xaxis_title="Total (R$)")
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("Sem coluna de data válida para montar esse gráfico.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown("")
+
+c3, c4 = st.columns(2)
+
+with c3:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🏆 Top 10 (maior valor emprestado)</div>', unsafe_allow_html=True)
+
+    if name_col:
+        top10 = (
+            df_filtrado.groupby(name_col, dropna=False)["_loan"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(10)
+            .reset_index()
+        )
+        top10.columns = ["Cliente", "Total"]
+
+        if not top10.empty:
+            fig3 = px.bar(top10, x="Cliente", y="Total")
+            fig3.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="total")
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.info("Sem dados para o gráfico.")
+    else:
+        st.info("Sem coluna de nome/cliente.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with c4:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🗓️ Vencimentos (valor a pagar)</div>', unsafe_allow_html=True)
+
+    if due_col and df_filtrado["_due_date"].notna().any():
+        venc = (
+            df_filtrado.groupby("_due_date", dropna=False)["_pay"]
             .sum()
             .reset_index()
-            .rename(columns={"data_dia": "dia", "valor_emprestado": "total"})
+            .sort_values("_due_date")
         )
+        venc["Data"] = venc["_due_date"].apply(lambda d: d.strftime("%d/%m/%Y") if pd.notna(d) else "Sem data")
 
-        full_days = pd.DataFrame({"dia": [inicio + timedelta(days=i) for i in range(7)]})
-        last7 = full_days.merge(last7, on="dia", how="left").fillna({"total": 0.0})
-
-        last7["dia_label"] = pd.to_datetime(last7["dia"]).dt.strftime("%d/%m/%Y")
-        last7["label"] = last7["total"].apply(brl)
-        last7 = last7.sort_values("dia", ascending=False)
-
-        fig2 = px.bar(last7, y="dia_label", x="total", orientation="h", text="label")
-        fig2.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=360,
-            xaxis_title="Total (R$)",
-            yaxis_title="Dia",
-        )
-        fig2.update_traces(
-            textposition="outside",
-            hovertemplate="Dia: %{y}<br>Total emprestado: %{text}<extra></extra>",
-            cliponaxis=False,
-        )
-
-        st.plotly_chart(fig2, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("")
-
-g3, g4 = st.columns([1, 1], gap="large")
-
-with g3:
-    st.markdown("<div class='card'><h3>🏆 Top 10 (maior valor emprestado)</h3>", unsafe_allow_html=True)
-
-    top = (
-        fdf.groupby(fdf[c_nome].astype(str))["valor_emprestado"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(10)
-        .reset_index()
-        .rename(columns={c_nome: "nome", "valor_emprestado": "total"})
-    )
-
-    fig3 = px.bar(top, x="nome", y="total")
-    fig3.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="")
-    st.plotly_chart(fig3, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with g4:
-    st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
-
-    venc = (
-        fdf.dropna(subset=["data_pagamento"])
-        .groupby(pd.to_datetime(fdf["data_pagamento"]).dt.date)["valor_a_pagar"]
-        .sum()
-        .reset_index()
-        .rename(columns={"data_pagamento": "data", "valor_a_pagar": "total"})
-    )
-
-    if venc.empty:
-        st.info("Sem vencimentos para exibir.")
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        venc["data"] = pd.to_datetime(venc["data"])
-        venc["data_label"] = venc["data"].dt.strftime("%d/%m/%Y")
-        venc["label"] = venc["total"].apply(brl)
-
-        TOP_N = 12
-        venc = venc.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
-
-        fig4 = px.bar(venc, y="data_label", x="total", orientation="h", text="label")
-        fig4.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=360,
-            xaxis_title="Total a pagar (R$)",
-            yaxis_title="Data",
-        )
-        fig4.update_traces(
-            textposition="outside",
-            hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>",
-            cliponaxis=False,
-        )
+        fig4 = px.bar(venc, x="Total a pagar" if "Total a pagar" in venc.columns else "_pay", y="Data", orientation="h")
+        fig4.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), xaxis_title="Total a pagar (R$)", yaxis_title="Data")
         st.plotly_chart(fig4, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("Sem coluna de vencimento válida.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("")
 
-# ===============================
-# TABELA
-# ===============================
-st.markdown("<div class='card'><h3>🧾 Registros</h3>", unsafe_allow_html=True)
+# ==========================================
+# TABELA + ATUALIZAÇÃO DA PLANILHA
+# ==========================================
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🧾 Registros</div>', unsafe_allow_html=True)
 
-show_cols = [c for c in [c_data, c_nome, c_tel, c_ve, c_vp, c_venc, c_status] if c and c in fdf.columns]
+# versão visual da tabela
+mostrar_cols = {}
 
-view = fdf.copy()
-view["Lucro (calc)"] = view["lucro"]
-view["Status (usado no dash)"] = view["status"]
+if date_col:
+    mostrar_cols[date_col] = "Data do dia"
+if name_col:
+    mostrar_cols[name_col] = "Emprestado"
+if phone_col:
+    mostrar_cols[phone_col] = "Telefone"
 
-table_cols = show_cols + ["Lucro (calc)", "Status (usado no dash)"]
-view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
+mostrar_cols[loan_col] = "Valor emprestado"
+mostrar_cols[pay_col] = "Valor a pagar"
 
-st.dataframe(view_sorted[table_cols], use_container_width=True, height=420)
-st.markdown("</div>", unsafe_allow_html=True)
+if due_col:
+    mostrar_cols[due_col] = "Data do pagamento"
+if status_col:
+    mostrar_cols[status_col] = "Status"
+if "_profit" not in mostrar_cols:
+    pass
 
-st.markdown("")
+df_show = df_filtrado.copy()
 
-# ===============================
-# ATUALIZAR STATUS NO FINAL
-# ===============================
-st.markdown("<div class='card'><h3>✏️ Atualizar status direto no painel</h3>", unsafe_allow_html=True)
+df_show["Valor emprestado"] = df_show["_loan"].apply(fmt_brl)
+df_show["Valor a pagar"] = df_show["_pay"].apply(fmt_brl)
+df_show["Lucro (calc)"] = df_show["_profit"].apply(lambda x: f"{int(x)}" if float(x).is_integer() else f"{x:.2f}".replace(".", ","))
+df_show["Status (usado no dash)"] = df_show["_dash_status"]
 
-if fdf.empty:
-    st.info("Sem registros para atualizar com os filtros atuais.")
+cols_final = []
+if date_col:
+    cols_final.append(date_col)
+if name_col:
+    cols_final.append(name_col)
+if phone_col:
+    cols_final.append(phone_col)
+
+cols_final += ["Valor emprestado", "Valor a pagar"]
+
+if due_col:
+    cols_final.append(due_col)
+if status_col:
+    cols_final.append(status_col)
+
+cols_final += ["Lucro (calc)", "Status (usado no dash)"]
+
+st.dataframe(
+    df_show[cols_final],
+    use_container_width=True,
+    height=400
+)
+
+st.markdown("### Atualizar status da planilha")
+
+if len(df_filtrado) == 0:
+    st.info("Nenhum registro para atualizar.")
 else:
-    idx = st.selectbox(
-        "Escolha o registro",
-        fdf.index,
-        format_func=lambda i: f"{fdf.loc[i, c_nome]} | {fdf.loc[i, c_data]} | Status: {fdf.loc[i, 'status']}"
-    )
+    for _, row in df_filtrado.iterrows():
+        with st.container(border=True):
+            a1, a2, a3, a4, a5 = st.columns([3, 2, 1.4, 1.4, 1.4])
 
-    row_number = int(fdf.loc[idx, "row_number"])
-    nome_cliente = str(fdf.loc[idx, c_nome])
+            nome_exib = str(row.get(name_col, "-")) if name_col else "-"
+            tel_exib = str(row.get(phone_col, "-")) if phone_col else "-"
+            status_exib = str(row.get("_dash_status", "-"))
 
-    c1, c2, c3 = st.columns(3)
+            with a1:
+                st.write(f"**{nome_exib}**")
+                st.caption(f"Telefone: {tel_exib}")
 
-    with c1:
-        if st.button("✔ Marcar Pago", use_container_width=True):
-            update_status_in_sheet(worksheet, row_number, "Pago")
-            st.success(f"{nome_cliente} marcado como Pago.")
-            time.sleep(0.4)
-            st.rerun()
+            with a2:
+                st.write(f"**{fmt_brl(row['_pay'])}**")
+                st.caption(f"Status atual: {status_exib}")
 
-    with c2:
-        if st.button("⏳ Em aberto", use_container_width=True):
-            update_status_in_sheet(worksheet, row_number, "Em aberto")
-            st.success(f"{nome_cliente} marcado como Em aberto.")
-            time.sleep(0.4)
-            st.rerun()
+            with a3:
+                if st.button("✔ Pago", key=f"pago_{row['_row_number']}", use_container_width=True):
+                    try:
+                        update_status_in_sheet(row["_row_number"], "Pago")
+                        st.success(f"{nome_exib}: status atualizado para Pago")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: {e}")
 
-    with c3:
-        if st.button("⚠ Vencido", use_container_width=True):
-            update_status_in_sheet(worksheet, row_number, "Vencido")
-            st.success(f"{nome_cliente} marcado como Vencido.")
-            time.sleep(0.4)
-            st.rerun()
+            with a4:
+                if st.button("⏳ Em aberto", key=f"aberto_{row['_row_number']}", use_container_width=True):
+                    try:
+                        update_status_in_sheet(row["_row_number"], "Em aberto")
+                        st.success(f"{nome_exib}: status atualizado para Em aberto")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: {e}")
 
-st.markdown("</div>", unsafe_allow_html=True)
-requirements.txt
+            with a5:
+                if st.button("⚠ Vencido", key=f"vencido_{row['_row_number']}", use_container_width=True):
+                    try:
+                        update_status_in_sheet(row["_row_number"], "Vencido")
+                        st.success(f"{nome_exib}: status atualizado para Vencido")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: {e}")
 
-Deixe assim:
-
-streamlit==1.36.0
+st.markdown('</div>', unsafe_allow_html=True)
