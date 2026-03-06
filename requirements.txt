@@ -3,3 +3,6 @@ pandas==2.2.2
 plotly==5.23.0
 numpy==2.0.1
 streamlit-autorefresh==1.0.1
+gspread
+google-auth
+requests
