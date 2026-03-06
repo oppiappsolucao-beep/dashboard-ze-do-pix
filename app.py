@@ -175,9 +175,6 @@ st.markdown(
         font-weight: 800 !important;
         width: 100% !important;
       }}
-      @media (max-width: 600px) {{
-        .oppi-title h1 {{ font-size: 22px; }}
-      }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -195,7 +192,8 @@ def get_gsheet_client():
         st.secrets["gcp_service_account"],
         scopes=scopes,
     )
-    return gspread.authorize(creds)
+    client = gspread.authorize(creds)
+    return client
 
 def load_sheet_api(sheet_id: str, worksheet_index: int = 0):
     client = get_gsheet_client()
@@ -207,8 +205,7 @@ def load_sheet_api(sheet_id: str, worksheet_index: int = 0):
     return df, ws
 
 def update_status_in_sheet(ws, row_number: int, new_status: str):
-    # coluna G = 7
-    ws.update_cell(row_number, 7, new_status)
+    ws.update_cell(row_number, 7, new_status)  # coluna G
 
 # ===============================
 # HELPERS
@@ -227,7 +224,7 @@ def parse_brl_money(x) -> float:
         s = s.replace(",", ".")
     try:
         return float(s)
-    except:
+    except Exception:
         return 0.0
 
 def parse_date_br(x):
@@ -259,6 +256,19 @@ def pick(df, name):
         if str(c).strip().lower() == name.strip().lower():
             return c
     return None
+
+# ===============================
+# DIAGNÓSTICO
+# ===============================
+st.markdown("<div class='card'><h3>🧪 Diagnóstico Google Sheets</h3>", unsafe_allow_html=True)
+try:
+    st.write("SERVICE ACCOUNT:", st.secrets["gcp_service_account"]["client_email"])
+    st.write("SHEET_ID:", SHEET_ID)
+except Exception as e:
+    st.error("Erro lendo Secrets.")
+    st.exception(e)
+    st.stop()
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
 # LOAD
@@ -309,7 +319,7 @@ df["status"] = df["status_planilha"]
 df.loc[df["status"].astype(str).str.strip() == "", "status"] = df.loc[df["status"].astype(str).str.strip() == "", "status_calc"]
 
 # ===============================
-# HEADER + AÇÕES
+# HEADER
 # ===============================
 l, r = st.columns([1, 1], vertical_alignment="center")
 with l:
@@ -358,7 +368,7 @@ if nome_busca.strip():
     fdf = fdf[fdf[c_nome].astype(str).str.contains(nome_busca.strip(), case=False, na=False)]
 
 # ===============================
-# AÇÃO DE ALTERAR STATUS
+# ALTERAR STATUS
 # ===============================
 st.markdown("<div class='card'><h3>✏️ Atualizar status direto no painel</h3>", unsafe_allow_html=True)
 
@@ -375,21 +385,18 @@ else:
     nome_cliente = str(fdf.loc[idx, c_nome])
 
     c1, c2, c3 = st.columns(3)
-
     with c1:
         if st.button("✔ Marcar Pago", use_container_width=True):
             update_status_in_sheet(worksheet, row_number, "Pago")
             st.success(f"{nome_cliente} marcado como Pago.")
             time.sleep(0.4)
             st.rerun()
-
     with c2:
         if st.button("⏳ Em aberto", use_container_width=True):
             update_status_in_sheet(worksheet, row_number, "Em aberto")
             st.success(f"{nome_cliente} marcado como Em aberto.")
             time.sleep(0.4)
             st.rerun()
-
     with c3:
         if st.button("⚠ Vencido", use_container_width=True):
             update_status_in_sheet(worksheet, row_number, "Vencido")
@@ -397,136 +404,4 @@ else:
             time.sleep(0.4)
             st.rerun()
 
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("")
-
-# ===============================
-# KPIs
-# ===============================
-total_registros = int(len(fdf))
-total_emprestado = float(fdf["valor_emprestado"].sum())
-total_a_receber = float(fdf["valor_a_pagar"].sum())
-lucro_total = float(fdf["lucro"].sum())
-qtd_abertos = int((fdf["status"] == "Em aberto").sum())
-qtd_vencidos = int((fdf["status"] == "Vencido").sum())
-qtd_pagos = int((fdf["status"] == "Pago").sum())
-
-st.markdown(f"<p class='subtle'>Total de registros filtrados: <b>{total_registros}</b></p>", unsafe_allow_html=True)
-
-st.markdown(
-    f"""
-    <div class="kpi-grid">
-      <div class="kpi"><h4>💰 Total emprestado</h4><p class="big">{brl(total_emprestado)}</p><p class="small">soma do valor emprestado</p></div>
-      <div class="kpi"><h4>📥 Total a receber</h4><p class="big">{brl(total_a_receber)}</p><p class="small">soma do valor a pagar</p></div>
-      <div class="kpi"><h4>📈 Lucro estimado</h4><p class="big">{brl(lucro_total)}</p><p class="small">a pagar − emprestado</p></div>
-      <div class="kpi"><h4>💳 Pagos</h4><p class="big">{qtd_pagos}</p><p class="small">qtd (Status = Pago)</p></div>
-      <div class="kpi"><h4>⏳ Em aberto</h4><p class="big">{qtd_abertos}</p><p class="small">a vencer / pendente</p></div>
-      <div class="kpi"><h4>⚠️ Vencidos</h4><p class="big">{qtd_vencidos}</p><p class="small">vencimento &lt; hoje</p></div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown("")
-
-# ===============================
-# GRÁFICOS
-# ===============================
-st.markdown("<div class='card'><h3>📌 Status por vencimento (valor total)</h3>", unsafe_allow_html=True)
-status_value = (
-    fdf.groupby("status")["valor_a_pagar"]
-    .sum()
-    .reset_index()
-    .rename(columns={"valor_a_pagar": "total"})
-)
-status_value["label"] = status_value["total"].apply(brl)
-
-fig = px.pie(status_value, names="status", values="total", hole=0.6)
-fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, showlegend=True)
-fig.update_traces(
-    textinfo="label+value",
-    hovertemplate="Status: %{label}<br>Total a pagar: %{customdata}<extra></extra>",
-    customdata=status_value["label"],
-)
-st.plotly_chart(fig, use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("<div class='card'><h3>📊 Valor emprestado (últimos 7 dias)</h3>", unsafe_allow_html=True)
-tmp = fdf.dropna(subset=["data_dia"]).copy()
-tmp["data_dia"] = pd.to_datetime(tmp["data_dia"]).dt.date
-
-if tmp.empty:
-    st.info("Sem dados com data para exibir.")
-else:
-    base = max(tmp["data_dia"])
-    inicio = base - timedelta(days=6)
-
-    tmp = tmp[(tmp["data_dia"] >= inicio) & (tmp["data_dia"] <= base)]
-    last7 = (
-        tmp.groupby("data_dia")["valor_emprestado"]
-        .sum()
-        .reset_index()
-        .rename(columns={"data_dia": "dia", "valor_emprestado": "total"})
-    )
-
-    full_days = pd.DataFrame({"dia": [inicio + timedelta(days=i) for i in range(7)]})
-    last7 = full_days.merge(last7, on="dia", how="left").fillna({"total": 0.0})
-    last7["dia_label"] = pd.to_datetime(last7["dia"]).dt.strftime("%d/%m/%Y")
-    last7["label"] = last7["total"].apply(brl)
-    last7 = last7.sort_values("dia", ascending=False)
-
-    fig2 = px.bar(last7, y="dia_label", x="total", orientation="h", text="label")
-    fig2.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total (R$)", yaxis_title="Dia")
-    fig2.update_traces(textposition="outside", hovertemplate="Dia: %{y}<br>Total emprestado: %{text}<extra></extra>", cliponaxis=False)
-    st.plotly_chart(fig2, use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("<div class='card'><h3>🏆 Top 10 (maior valor emprestado)</h3>", unsafe_allow_html=True)
-top = (
-    fdf.groupby(fdf[c_nome].astype(str))["valor_emprestado"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
-    .reset_index()
-    .rename(columns={c_nome: "nome", "valor_emprestado": "total"})
-)
-fig3 = px.bar(top, x="nome", y="total")
-fig3.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="")
-st.plotly_chart(fig3, use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("<div class='card'><h3>📅 Vencimentos (valor a pagar)</h3>", unsafe_allow_html=True)
-venc = (
-    fdf.dropna(subset=["data_pagamento"])
-    .groupby(pd.to_datetime(fdf["data_pagamento"]).dt.date)["valor_a_pagar"]
-    .sum()
-    .reset_index()
-    .rename(columns={"data_pagamento": "data", "valor_a_pagar": "total"})
-)
-if venc.empty:
-    st.info("Sem vencimentos para exibir.")
-else:
-    venc["data"] = pd.to_datetime(venc["data"])
-    venc["data_label"] = venc["data"].dt.strftime("%d/%m/%Y")
-    venc["label"] = venc["total"].apply(brl)
-    TOP_N = 12
-    venc = venc.sort_values("total", ascending=False).head(TOP_N).sort_values("total", ascending=True)
-
-    fig4 = px.bar(venc, y="data_label", x="total", orientation="h", text="label")
-    fig4.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=360, xaxis_title="Total a pagar (R$)", yaxis_title="Data")
-    fig4.update_traces(textposition="outside", hovertemplate="Data: %{y}<br>Total a pagar: %{text}<extra></extra>", cliponaxis=False)
-    st.plotly_chart(fig4, use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-# ===============================
-# TABELA
-# ===============================
-st.markdown("<div class='card'><h3>🧾 Registros</h3>", unsafe_allow_html=True)
-show_cols = [c for c in [c_data, c_nome, c_tel, c_ve, c_vp, c_venc, c_status] if c and c in fdf.columns]
-view = fdf.copy()
-view["Lucro (calc)"] = view["lucro"]
-view["Status (usado no dash)"] = view["status"]
-table_cols = show_cols + ["Lucro (calc)", "Status (usado no dash)"]
-view_sorted = view.sort_values(by="data_dia", ascending=False, na_position="last")
-st.dataframe(view_sorted[table_cols], use_container_width=True, height=420)
 st.markdown("</div>", unsafe_allow_html=True)
