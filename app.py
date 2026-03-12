@@ -732,12 +732,24 @@ st.markdown("")
 # ---------------------------------------------------
 
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">✏️ Atualizar status da planilha</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">✏️ Atualizar status pagamento</div>', unsafe_allow_html=True)
 
-if df_filtrado.empty:
-    st.info("Nenhum registro encontrado para atualização.")
+buscar_cliente_status = st.text_input(
+    "🔎 Buscar cliente",
+    placeholder="Digite o nome do cliente..."
+)
+
+df_status = df_filtrado.copy()
+
+if buscar_cliente_status.strip():
+    df_status = df_status[
+        df_status[col_nome].astype(str).str.contains(buscar_cliente_status, case=False, na=False)
+    ]
+
+if df_status.empty:
+    st.info("Nenhum cliente encontrado.")
 else:
-    for _, row in df_filtrado.iterrows():
+    for _, row in df_status.iterrows():
         nome = str(row.get(col_nome, "-"))
         telefone = str(row.get(col_telefone, "-"))
         valor = format_money(row.get("valor_pagar", 0))
