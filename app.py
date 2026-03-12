@@ -728,52 +728,6 @@ with g4:
 st.markdown("")
 
 # ---------------------------------------------------
-# TABELA
-# ---------------------------------------------------
-
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🧾 Registros</div>', unsafe_allow_html=True)
-
-df_show = df_filtrado.copy()
-df_show["Valor emprestado_fmt"] = df_show["valor_emprestado"].apply(format_money)
-df_show["Valor a pagar_fmt"] = df_show["valor_pagar"].apply(format_money)
-df_show["Lucro (calc)"] = df_show["lucro"].apply(format_money)
-df_show["Status (usado no dash)"] = df_show["status_dash"]
-
-cols_show = [
-    col_data,
-    col_nome,
-    col_telefone,
-    "Valor emprestado_fmt",
-    "Valor a pagar_fmt",
-    col_vencimento,
-    col_status,
-    "Lucro (calc)",
-    "Status (usado no dash)"
-]
-
-renomear = {
-    col_data: "Data do dia",
-    col_nome: "Emprestado",
-    col_telefone: "Telefone",
-    "Valor emprestado_fmt": "Valor emprestado",
-    "Valor a pagar_fmt": "Valor a pagar",
-    col_vencimento: "Data do pagamento",
-    col_status: "Status",
-    "Lucro (calc)": "Lucro (calc)",
-    "Status (usado no dash)": "Status (usado no dash)"
-}
-
-st.dataframe(
-    df_show[cols_show].rename(columns=renomear),
-    use_container_width=True,
-    height=420
-)
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("")
-
-# ---------------------------------------------------
 # ATUALIZAR STATUS
 # ---------------------------------------------------
 
