@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import datetime, date, timedelta
 
 import gspread
@@ -198,7 +199,7 @@ def update_status(row_number, status):
 
     status_col_idx = None
     for idx, col in enumerate(headers, start=1):
-        if str(col).strip().lower() == "status":
+        if normalize_text(col) == "status":
             status_col_idx = idx
             break
 
@@ -208,15 +209,24 @@ def update_status(row_number, status):
     ws.update_cell(int(row_number), int(status_col_idx), status)
     load_data.clear()
 
-
 # ---------------------------------------------------
 # UTIL
 # ---------------------------------------------------
 
+def normalize_text(value):
+    if value is None:
+        return ""
+    s = str(value).strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
 def pick_col(df, options):
-    cols_norm = {str(c).strip().lower(): c for c in df.columns}
+    cols_norm = {normalize_text(c): c for c in df.columns}
     for opt in options:
-        key = str(opt).strip().lower()
+        key = normalize_text(opt)
         if key in cols_norm:
             return cols_norm[key]
     return None
@@ -286,13 +296,30 @@ def parse_date(d):
         return pd.NaT
 
 
+def normalize_status_sheet(value):
+    s = normalize_text(value)
+
+    if s in ["pago", "pagou", "quitado", "recebido"]:
+        return "Pago"
+
+    if s in ["vencido", "atrasado", "em atraso"]:
+        return "Vencido"
+
+    if s in ["a vencer", "avencer", "em aberto", "aberto", "pendente", "a receber"]:
+        return "Em aberto"
+
+    if s == "":
+        return "Em aberto"
+
+    return "Em aberto"
+
+
 def status_chip(status):
     if status == "Pago":
         return '<span class="status-chip chip-pago">Pago</span>'
     if status == "Vencido":
         return '<span class="status-chip chip-vencido">Vencido</span>'
     return '<span class="status-chip chip-aberto">Em aberto</span>'
-
 
 # ---------------------------------------------------
 # CSS PRINCIPAL
@@ -405,7 +432,6 @@ with top1:
 with top2:
     if st.button("🔄 Atualizar agora", use_container_width=True):
         load_data.clear()
-        st.cache_resource.clear()
         st.rerun()
 
 with top3:
@@ -434,11 +460,11 @@ if df.empty:
 # DETECTAR COLUNAS AUTOMATICAMENTE
 # ---------------------------------------------------
 
-col_data = pick_col(df, ["Data do dia", "Data"])
+col_data = pick_col(df, ["Data do dia", "Data", "Data empréstimo", "Data do emprestimo"])
 col_nome = pick_col(df, ["Emprestado", "Cliente", "Nome"])
-col_telefone = pick_col(df, ["Telefone", "WhatsApp", "Celular"])
-col_valor_emprestado = pick_col(df, ["Valor emprestado", "Valor Emprestado"])
-col_valor_pagar = pick_col(df, ["Valor a pagar", "Valor a Receber", "Total a pagar"])
+col_telefone = pick_col(df, ["Telefone", "WhatsApp", "Whatsapp", "Celular"])
+col_valor_emprestado = pick_col(df, ["Valor emprestado", "Valor Emprestado", "Valor"])
+col_valor_pagar = pick_col(df, ["Valor a pagar", "Valor a Receber", "Total a pagar", "Valor total"])
 col_vencimento = pick_col(df, ["Data de pagamento", "Data Pagamento", "Vencimento", "Data de vencimento"])
 col_status = pick_col(df, ["Status"])
 
@@ -477,15 +503,15 @@ df["vencimento"] = df[col_vencimento].apply(parse_date)
 today = date.today()
 
 def calc_status(row):
-    status = str(row[col_status]).strip().lower()
+    status_planilha = normalize_status_sheet(row.get(col_status, ""))
 
-    if "pago" in status:
+    if status_planilha == "Pago":
         return "Pago"
 
-    if "vencido" in status:
+    if pd.notna(row["vencimento"]) and row["vencimento"] < today:
         return "Vencido"
 
-    if pd.notna(row["vencimento"]) and row["vencimento"] < today:
+    if status_planilha == "Vencido":
         return "Vencido"
 
     return "Em aberto"
