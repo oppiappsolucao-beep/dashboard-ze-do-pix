@@ -1,4 +1,6 @@
+import os
 import re
+import json
 import unicodedata
 from datetime import datetime, date, timedelta
 
@@ -18,11 +20,14 @@ st.set_page_config(
     layout="wide"
 )
 
-APP_USER = "operacao"
-APP_PASS = "100316"
+APP_USER = os.getenv("APP_USER", "operacao")
+APP_PASS = os.getenv("APP_PASS", "100316")
 
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg/edit?usp=sharing"
-WORKSHEET_NAME = "Página1"
+SPREADSHEET_URL = os.getenv(
+    "SPREADSHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1jZwhiehWGGqVNucPIB7URzrhg_-vASpwFJtgg1mI5Mg/edit?usp=sharing"
+)
+WORKSHEET_NAME = os.getenv("WORKSHEET_NAME", "Página1")
 
 # ---------------------------------------------------
 # LOGIN
@@ -126,7 +131,7 @@ if not ensure_login():
 # GOOGLE SHEETS
 # ---------------------------------------------------
 
-def normalize_private_key(pk):
+def normalize_private_key(pk: str) -> str:
     return pk.replace("\\n", "\n") if pk else pk
 
 
@@ -137,20 +142,21 @@ def get_gsheet_client():
         "https://www.googleapis.com/auth/drive"
     ]
 
-    creds = st.secrets["gcp_service_account"]
+    raw_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "").strip()
 
-    creds_dict = {
-        "type": creds["type"],
-        "project_id": creds["project_id"],
-        "private_key_id": creds["private_key_id"],
-        "private_key": normalize_private_key(creds["private_key"]),
-        "client_email": creds["client_email"],
-        "client_id": creds["client_id"],
-        "auth_uri": creds["auth_uri"],
-        "token_uri": creds["token_uri"],
-        "auth_provider_x509_cert_url": creds["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": creds["client_x509_cert_url"],
-    }
+    if not raw_json:
+        raise RuntimeError(
+            "Variável de ambiente GCP_SERVICE_ACCOUNT_JSON não encontrada."
+        )
+
+    try:
+        creds_dict = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            "GCP_SERVICE_ACCOUNT_JSON está inválida. Cole o JSON completo da service account em uma linha só."
+        ) from e
+
+    creds_dict["private_key"] = normalize_private_key(creds_dict.get("private_key", ""))
 
     credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(credentials)
@@ -446,7 +452,7 @@ st.markdown(
 try:
     _ws = get_worksheet()
 except Exception as e:
-    st.error("Erro ao conectar com Google Sheets API. Verifique Secrets, URL da planilha e compartilhamento.")
+    st.error("Erro ao conectar com Google Sheets API. Verifique GCP_SERVICE_ACCOUNT_JSON, SPREADSHEET_URL, WORKSHEET_NAME e compartilhamento da planilha.")
     st.exception(e)
     st.stop()
 
