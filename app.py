@@ -164,6 +164,21 @@ def get_worksheet():
     return worksheet
 
 
+def clean_header_text(value):
+    if value is None:
+        return ""
+    s = str(value)
+    s = s.replace("\ufeff", "")
+    s = s.replace("\u200b", "")
+    s = s.replace("\u200c", "")
+    s = s.replace("\u200d", "")
+    s = s.replace("\xa0", " ")
+    s = s.replace("\n", " ")
+    s = s.replace("\r", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 @st.cache_data(ttl=20)
 def load_data():
     worksheet = get_worksheet()
@@ -172,8 +187,10 @@ def load_data():
     if not values:
         return pd.DataFrame(), []
 
-    headers = values[0]
+    raw_headers = values[0]
     rows = values[1:]
+
+    headers = [clean_header_text(h) for h in raw_headers]
 
     if not rows:
         return pd.DataFrame(columns=headers), headers
@@ -181,6 +198,7 @@ def load_data():
     max_cols = len(headers)
     rows_norm = []
     for row in rows:
+        row = list(row)
         if len(row) < max_cols:
             row = row + [""] * (max_cols - len(row))
         else:
@@ -195,7 +213,7 @@ def load_data():
 
 def update_status(row_number, status):
     ws = get_worksheet()
-    headers = ws.row_values(1)
+    headers = [clean_header_text(h) for h in ws.row_values(1)]
 
     status_col_idx = None
     for idx, col in enumerate(headers, start=1):
@@ -216,19 +234,32 @@ def update_status(row_number, status):
 def normalize_text(value):
     if value is None:
         return ""
-    s = str(value).strip().lower()
+
+    s = str(value)
+    s = s.replace("\ufeff", "")
+    s = s.replace("\u200b", "")
+    s = s.replace("\u200c", "")
+    s = s.replace("\u200d", "")
+    s = s.replace("\xa0", " ")
+    s = s.strip().lower()
+
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"\s+", " ", s)
+
+    s = re.sub(r"[^a-z0-9\s]", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
     return s
 
 
 def pick_col(df, options):
     cols_norm = {normalize_text(c): c for c in df.columns}
+
     for opt in options:
         key = normalize_text(opt)
         if key in cols_norm:
             return cols_norm[key]
+
     return None
 
 
@@ -432,6 +463,8 @@ with top1:
 with top2:
     if st.button("🔄 Atualizar agora", use_container_width=True):
         load_data.clear()
+        st.cache_data.clear()
+        st.cache_resource.clear()
         st.rerun()
 
 with top3:
@@ -460,12 +493,12 @@ if df.empty:
 # DETECTAR COLUNAS AUTOMATICAMENTE
 # ---------------------------------------------------
 
-col_data = pick_col(df, ["Data do dia", "Data", "Data empréstimo", "Data do emprestimo"])
+col_data = pick_col(df, ["Data do dia", "Data"])
 col_nome = pick_col(df, ["Emprestado", "Cliente", "Nome"])
 col_telefone = pick_col(df, ["Telefone", "WhatsApp", "Whatsapp", "Celular"])
-col_valor_emprestado = pick_col(df, ["Valor emprestado", "Valor Emprestado", "Valor"])
-col_valor_pagar = pick_col(df, ["Valor a pagar", "Valor a Receber", "Total a pagar", "Valor total"])
-col_vencimento = pick_col(df, ["Data de pagamento", "Data Pagamento", "Vencimento", "Data de vencimento"])
+col_valor_emprestado = pick_col(df, ["Valor emprestado", "Valor Emprestado"])
+col_valor_pagar = pick_col(df, ["Valor a pagar", "Valor a Receber", "Total a pagar"])
+col_vencimento = pick_col(df, ["Data do pagamento", "Data Pagamento", "Vencimento", "Data de vencimento"])
 col_status = pick_col(df, ["Status"])
 
 faltando = []
@@ -480,13 +513,14 @@ if not col_valor_emprestado:
 if not col_valor_pagar:
     faltando.append("Valor a pagar")
 if not col_vencimento:
-    faltando.append("Data de pagamento")
+    faltando.append("Data do pagamento")
 if not col_status:
     faltando.append("Status")
 
 if faltando:
     st.error("Faltam colunas necessárias na planilha.")
     st.write("Colunas encontradas:", list(df.columns))
+    st.write("Colunas normalizadas:", [normalize_text(c) for c in df.columns])
     st.write("Colunas faltando:", faltando)
     st.stop()
 
@@ -724,7 +758,7 @@ renomear = {
     col_telefone: "Telefone",
     "Valor emprestado_fmt": "Valor emprestado",
     "Valor a pagar_fmt": "Valor a pagar",
-    col_vencimento: "Data de pagamento",
+    col_vencimento: "Data do pagamento",
     col_status: "Status",
     "Lucro (calc)": "Lucro (calc)",
     "Status (usado no dash)": "Status (usado no dash)"
